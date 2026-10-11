@@ -6,14 +6,14 @@ import { useEffect, useRef, useState } from "react";
 import { CountryMap } from "@/components/map/CountryMap";
 import { Silhouette } from "@/components/map/Silhouette";
 import { Lando, Speech } from "@/components/lando/Lando";
-import { SpellFix } from "@/components/spelling/SpellFix";
+import { AnswerEntry, LetterRow } from "@/components/spelling/AnswerTiles";
 import { usePlayer } from "@/components/player/PlayerProvider";
 import { MODE_LABELS, type GameMode } from "@/lib/boards";
 import { countryByIso, type BoardId, type Country } from "@/lib/countries";
 import { requiredIsos } from "@/lib/map-model";
 import { applyOutcome, pickTricky, type Outcome, type Profile } from "@/lib/profile";
 import { sfx } from "@/lib/sound";
-import { judgeGuess } from "@/lib/spelling";
+import { judgeGuess, letterTiles, type LetterTile } from "@/lib/spelling";
 import { countries } from "@/lib/countries";
 import type { LandoMood } from "@/lib/sprites";
 
@@ -21,8 +21,7 @@ type Phase =
   | { kind: "choose" }
   | { kind: "type"; iso: string }
   | { kind: "ask"; iso: string }
-  | { kind: "spell"; iso: string; guess: string; form: string; display: string }
-  | { kind: "feedback"; tone: "good" | "bad"; iso: string; reveal: string | null }
+  | { kind: "feedback"; tone: "good" | "bad"; iso: string; reveal: string | null; tiles?: LetterTile[] }
   | { kind: "victory" }
   | { kind: "empty" };
 
@@ -174,6 +173,8 @@ export function GameScreen({ mode }: { mode: GameMode }) {
   const { ready, profile, setProfile, syncProgress } = usePlayer();
   const [run, setRun] = useState<RunState | null>(null);
   const [draft, setDraft] = useState("");
+  const [marks, setMarks] = useState<LetterTile[] | null>(null);
+  const helped = useRef(false);
   const [confirmReset, setConfirmReset] = useState(false);
   const profileRef = useRef(profile);
   profileRef.current = profile;
@@ -203,6 +204,14 @@ export function GameScreen({ mode }: { mode: GameMode }) {
       }),
     );
   }, [mode, run]);
+
+  const answerKey =
+    run && (run.phase.kind === "type" || run.phase.kind === "feedback") ? `${run.phase.kind}:${run.phase.iso}` : run?.phase.kind ?? "";
+
+  useEffect(() => {
+    setDraft("");
+    setMarks(null);
+  }, [answerKey]);
 
   useEffect(() => {
     if (run?.phase.kind === "type") inputRef.current?.focus();
@@ -235,7 +244,7 @@ export function GameScreen({ mode }: { mode: GameMode }) {
     mode === "silhouette" || (mode === "practice" && run.practiceKind === "silhouette");
   const showMap = !showSilhouette && run.phase.kind !== "empty";
   const activeIso =
-    run.phase.kind === "type" || run.phase.kind === "ask" || run.phase.kind === "spell" || run.phase.kind === "feedback"
+    run.phase.kind === "type" || run.phase.kind === "ask" || run.phase.kind === "feedback"
       ? run.phase.iso
       : null;
 
@@ -255,7 +264,7 @@ export function GameScreen({ mode }: { mode: GameMode }) {
     });
   }
 
-  function onCorrect(iso: string, outcome: Outcome) {
+  function onCorrect(iso: string, outcome: Outcome, tiles?: LetterTile[]) {
     const country = countryByIso.get(iso);
     if (!country || !run) return;
     const streak = run.streak + 1;
@@ -271,7 +280,7 @@ export function GameScreen({ mode }: { mode: GameMode }) {
             streak,
             best: Math.max(current.best, streak),
             stamped: current.stamped.includes(iso) ? current.stamped : [...current.stamped, iso],
-            phase: { kind: "feedback", tone: "good", iso, reveal: null },
+            phase: { kind: "feedback", tone: "good", iso, reveal: null, tiles },
             line: successLine(country.name, streak),
             mood: "celebrate",
           }
@@ -279,7 +288,7 @@ export function GameScreen({ mode }: { mode: GameMode }) {
     );
   }
 
-  function onMiss(iso: string, line: string, outcome: Outcome = "miss") {
+  function onMiss(iso: string, line: string, outcome: Outcome = "miss", tiles?: LetterTile[]) {
     if (!run) return;
     record(iso, outcome, 0, false);
     sfx.miss();
@@ -288,7 +297,7 @@ export function GameScreen({ mode }: { mode: GameMode }) {
         ? {
             ...current,
             streak: 0,
-            phase: { kind: "feedback", tone: "bad", iso, reveal: iso },
+            phase: { kind: "feedback", tone: "bad", iso, reveal: iso, tiles },
             line,
             mood: "oops",
           }
@@ -297,38 +306,43 @@ export function GameScreen({ mode }: { mode: GameMode }) {
   }
 
   function submitGuess(raw: string) {
-    if (!run || (run.phase.kind !== "type" && run.phase.kind !== "spell")) return;
+    if (!run || run.phase.kind !== "type") return;
     const iso = run.phase.iso;
     const country = countryByIso.get(iso);
-    if (!country) return;
+    if (!country || !raw.trim()) return;
     const result = judgeGuess(raw, country, countries);
     if (result.kind === "correct") {
-      onCorrect(iso, "correct");
+      const tiles = letterTiles(raw, country.name, true);
+      setMarks(tiles);
+      onCorrect(iso, helped.current ? "near" : "correct", tiles);
+      helped.current = false;
+      setDraft("");
+      setMarks(null);
       return;
     }
+    const target = result.kind === "near" ? result.display : country.name;
+    const tiles = letterTiles(raw, target);
+    setMarks(tiles);
     if (result.kind === "hint") {
       setRun((current) => (current ? { ...current, line: result.message, mood: "think" } : current));
       return;
     }
     if (result.kind === "near") {
       sfx.near();
+      helped.current = true;
       setRun((current) =>
         current
-          ? {
-              ...current,
-              phase: { kind: "spell", iso, guess: raw, form: result.form, display: result.display },
-              line: "Nearly! The red letters are wrong. Tap the letters in the right order.",
-              mood: "think",
-            }
+          ? { ...current, line: "Nearly! Green letters are in the right place. Fix the red ones.", mood: "think" }
           : current,
       );
       return;
     }
+    helped.current = false;
     if (result.kind === "mixup") {
-      onMiss(iso, `${result.message} ${STREAK_RESET}`);
+      onMiss(iso, `${result.message} ${STREAK_RESET}`, "miss", tiles);
       return;
     }
-    onMiss(iso, `The name is ${country.name}. ${STREAK_RESET}`);
+    onMiss(iso, `The name is ${country.name}. ${STREAK_RESET}`, "miss", tiles);
   }
 
   function onPick(hit: { iso2: string } | { note: string }) {
@@ -337,8 +351,11 @@ export function GameScreen({ mode }: { mode: GameMode }) {
       setRun((current) => (current ? { ...current, line: hit.note, mood: "think" } : current));
       return;
     }
-    if (run.phase.kind === "feedback" || run.phase.kind === "spell" || run.phase.kind === "victory") return;
+    if (run.phase.kind === "feedback" || run.phase.kind === "victory") return;
     sfx.tap();
+    helped.current = false;
+    setDraft("");
+    setMarks(null);
     if (run.phase.kind === "ask") {
       if (hit.iso2 === run.phase.iso) onCorrect(hit.iso2, "correct");
       else {
@@ -426,50 +443,41 @@ export function GameScreen({ mode }: { mode: GameMode }) {
           <Speech>{run.line}</Speech>
         </div>
 
-        {run.phase.kind === "type" ? (
-          <form
-            className="mt-3 flex gap-2"
-            onSubmit={(event) => {
-              event.preventDefault();
-              submitGuess(draft);
-            }}
-          >
-            <label className="sr-only" htmlFor="country-answer">
-              Country name
-            </label>
-            <input
-              ref={inputRef}
-              id="country-answer"
-              value={draft}
-              onChange={(event) => setDraft(event.target.value)}
-              autoComplete="off"
-              autoCorrect="off"
-              autoCapitalize="words"
-              spellCheck={false}
-              enterKeyHint="done"
-              className="field min-w-0 flex-1"
-              placeholder="Type the name"
-            />
-            <button type="submit" className="chunky min-h-12 bg-pick px-4 font-extrabold">
-              Go
-            </button>
-          </form>
+        {run.phase.kind === "feedback" && run.phase.tiles && run.phase.tiles.length > 0 ? (
+          <div className="mt-3">
+            <LetterRow tiles={run.phase.tiles} />
+          </div>
         ) : null}
 
-        {run.phase.kind === "spell" ? (
-          <div className="mt-3">
-            <SpellFix
-              guess={run.phase.guess}
-              highlightForm={run.phase.form}
-              answer={run.phase.display}
-              onSolved={() => onCorrect(run.phase.kind === "spell" ? run.phase.iso : "", "near")}
-              onSkip={() => {
-                if (run.phase.kind !== "spell") return;
-                const name = countryByIso.get(run.phase.iso)?.name ?? "that country";
-                onMiss(run.phase.iso, `We'll remember ${name} for next time. Your streak starts again.`, "skip");
+        {run.phase.kind === "type" ? (
+          <>
+            <AnswerEntry
+              value={draft}
+              marks={marks}
+              inputRef={inputRef}
+              onChange={(value) => {
+                setDraft(value);
+                setMarks(null);
               }}
+              onSubmit={() => submitGuess(draft)}
             />
-          </div>
+            {marks?.some((tile) => tile.tone === "red") ? (
+              <button
+                type="button"
+                className="chunky mt-2 min-h-11 w-full bg-sand font-extrabold"
+                onClick={() => {
+                  if (run.phase.kind !== "type") return;
+                  const name = countryByIso.get(run.phase.iso)?.name ?? "that country";
+                  helped.current = false;
+                  onMiss(run.phase.iso, `The name is ${name}. ${STREAK_RESET}`, "skip", marks);
+                  setDraft("");
+                  setMarks(null);
+                }}
+              >
+                I don&apos;t know
+              </button>
+            ) : null}
+          </>
         ) : null}
 
         {run.phase.kind === "feedback" && run.phase.tone === "bad" ? (
@@ -563,7 +571,7 @@ function nextQuestion(current: RunState, mode: GameMode, profile: Profile | null
 
 function phaseIso(current: RunState) {
   const phase = current.phase;
-  if (phase.kind === "type" || phase.kind === "ask" || phase.kind === "spell" || phase.kind === "feedback") {
+  if (phase.kind === "type" || phase.kind === "ask" || phase.kind === "feedback") {
     return phase.iso;
   }
   return null;

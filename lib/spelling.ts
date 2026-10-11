@@ -1,5 +1,36 @@
 import type { Country } from "@/lib/countries";
 
+export type LetterTile = { ch: string; tone: "yellow" | "green" | "red" | "gap" };
+
+function namePieces(value: string) {
+  const stripped = value.normalize("NFD").replace(/\p{M}/gu, "").replace(/['’]/g, "");
+  const pieces: { ch: string; key: string }[] = [];
+  for (const ch of stripped) {
+    if (/[a-z0-9]/i.test(ch)) pieces.push({ ch: ch.toUpperCase(), key: ch.toLowerCase() });
+    else if (/\s/.test(ch) && pieces.at(-1)?.key !== " ") pieces.push({ ch: " ", key: " " });
+  }
+  while (pieces[0]?.key === " ") pieces.shift();
+  while (pieces.at(-1)?.key === " ") pieces.pop();
+  return pieces;
+}
+
+export function draftTiles(value: string): LetterTile[] {
+  return namePieces(value).map((piece) => ({
+    ch: piece.ch,
+    tone: piece.key === " " ? "gap" : "yellow",
+  }));
+}
+
+export function letterTiles(guess: string, target: string, allGreen = false): LetterTile[] {
+  const typed = namePieces(guess);
+  const answer = namePieces(target);
+  return typed.map((piece, index) => {
+    if (piece.key === " ") return { ch: " ", tone: "gap" };
+    if (allGreen || piece.key === answer[index]?.key) return { ch: piece.ch, tone: "green" };
+    return { ch: piece.ch, tone: "red" };
+  });
+}
+
 export type Judgement =
   | { kind: "correct" }
   | { kind: "hint"; message: string }
@@ -42,67 +73,6 @@ export function damerauLevenshtein(a: string, b: string) {
     }
   }
   return dp[a.length][b.length];
-}
-
-export function spellWords(name: string) {
-  return name
-    .normalize("NFD")
-    .replace(/\p{M}/gu, "")
-    .replace(/['’]/g, "")
-    .split(/[^A-Za-z]+/)
-    .filter((word) => word.length > 0);
-}
-
-export function markGuess(guess: string, target: string) {
-  const dp: number[][] = Array.from({ length: guess.length + 1 }, () =>
-    Array(target.length + 1).fill(0),
-  );
-  for (let i = 0; i <= guess.length; i += 1) dp[i][0] = i;
-  for (let j = 0; j <= target.length; j += 1) dp[0][j] = j;
-  for (let i = 1; i <= guess.length; i += 1) {
-    for (let j = 1; j <= target.length; j += 1) {
-      const cost = guess[i - 1] === target[j - 1] ? 0 : 1;
-      dp[i][j] = Math.min(dp[i - 1][j] + 1, dp[i][j - 1] + 1, dp[i - 1][j - 1] + cost);
-      if (i > 1 && j > 1 && guess[i - 1] === target[j - 2] && guess[i - 2] === target[j - 1]) {
-        dp[i][j] = Math.min(dp[i][j], dp[i - 2][j - 2] + 1);
-      }
-    }
-  }
-
-  const marks: { ch: string; bad: boolean }[] = [];
-  let i = guess.length;
-  let j = target.length;
-  const reversed: { ch: string; bad: boolean }[] = [];
-  while (i > 0 || j > 0) {
-    if (
-      i > 1 &&
-      j > 1 &&
-      guess[i - 1] === target[j - 2] &&
-      guess[i - 2] === target[j - 1] &&
-      dp[i][j] === dp[i - 2][j - 2] + 1
-    ) {
-      reversed.push({ ch: guess[i - 1], bad: true }, { ch: guess[i - 2], bad: true });
-      i -= 2;
-      j -= 2;
-      continue;
-    }
-    if (i > 0 && j > 0 && dp[i][j] === dp[i - 1][j - 1] + (guess[i - 1] === target[j - 1] ? 0 : 1)) {
-      const same = guess[i - 1] === target[j - 1];
-      reversed.push({ ch: guess[i - 1], bad: !same && guess[i - 1] !== " " });
-      i -= 1;
-      j -= 1;
-      continue;
-    }
-    if (i > 0 && dp[i][j] === dp[i - 1][j] + 1) {
-      reversed.push({ ch: guess[i - 1], bad: guess[i - 1] !== " " });
-      i -= 1;
-      continue;
-    }
-    j -= 1;
-  }
-  reversed.reverse();
-  marks.push(...reversed);
-  return marks;
 }
 
 function acceptedForms(country: Country) {
