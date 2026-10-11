@@ -20,6 +20,7 @@ export function HomeScreen() {
   const [nickname, setNickname] = useState("");
   const [code, setCode] = useState("");
   const [showCode, setShowCode] = useState(false);
+  const [lookingAtCode, setLookingAtCode] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   if (!ready) return <div className="h-dvh bg-sea" />;
@@ -132,9 +133,18 @@ export function HomeScreen() {
           <Lando mood="wave" className="h-24 shrink-0" />
           <Speech>Pick the game you would like to play.</Speech>
         </div>
-        <p className="mt-3 font-extrabold">
-          Stamps {stamps} of {quizCountries.length}
-        </p>
+        <div className="mt-3 flex items-center justify-between gap-3">
+          <p className="font-extrabold">
+            Stamps {stamps} of {quizCountries.length}
+          </p>
+          <button
+            type="button"
+            className="chunky min-h-11 shrink-0 bg-sand px-3 font-extrabold"
+            onClick={() => setLookingAtCode(true)}
+          >
+            My code
+          </button>
+        </div>
       </div>
 
       <section className="grid flex-1 gap-3 px-4 py-4">
@@ -149,20 +159,25 @@ export function HomeScreen() {
         ))}
       </section>
 
-      {!profile.seenCode ? (
+      {!profile.seenCode || lookingAtCode ? (
         <div className="fixed inset-0 z-20 grid place-items-center bg-ink/40 p-4">
-          <div className="chunky w-full max-w-sm bg-paper p-5">
-            <h2 className="font-pixel text-sm">Your Lando code</h2>
+          <div className="chunky w-full max-w-sm bg-paper p-5" role="dialog" aria-labelledby="lando-code-title">
+            <h2 id="lando-code-title" className="font-pixel text-sm">
+              Your Lando code
+            </h2>
             <p className="mt-3 text-lg font-extrabold">
-              Write this code down. You can use it to get your stamps back on another phone or computer.
+              Your stamps stay on this phone. Write this code down so you can get them back on another phone or computer.
             </p>
             <p className="mt-3 text-center text-3xl font-extrabold tracking-[0.25em]">{formatCode(profile.recoveryCode)}</p>
             <button
               type="button"
               className="chunky mt-4 min-h-12 w-full bg-pick font-extrabold"
-              onClick={() => setProfile({ ...profile, seenCode: true })}
+              onClick={() => {
+                setLookingAtCode(false);
+                if (!profile.seenCode) setProfile({ ...profile, seenCode: true });
+              }}
             >
-              I&apos;ve written it down
+              {profile.seenCode ? "OK" : "I've written it down"}
             </button>
           </div>
         </div>
