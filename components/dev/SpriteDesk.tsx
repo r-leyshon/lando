@@ -2,11 +2,13 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { LANDO_FRAME_HEIGHT, LANDO_FRAME_WIDTH } from "@/lib/sprites";
 
 const SHEETS = ["idle_sheet", "think_sheet", "celebrate_sheet", "oops_sheet"] as const;
 const BRAND = ["#080018", "#2a241b", "#79c3de", "#fff6e4", "#f4d48a", "#f08a3c", "#6fbf73", "#e15b4c", "#ffffff"];
+const AXIS_X = 36;
+const AXIS_Y = 16;
 
 type Tool = "paint" | "erase" | "pick";
 type Place = { sheet: string; row: number; frame: number };
@@ -53,6 +55,53 @@ function commonColours(pixels: ImageData) {
     .sort((left, right) => right[1] - left[1])
     .slice(0, 16)
     .map(([colour]) => colour);
+}
+
+function columnLetter(index: number) {
+  let n = index;
+  let name = "";
+  do {
+    name = String.fromCharCode(65 + (n % 26)) + name;
+    n = Math.floor(n / 26) - 1;
+  } while (n >= 0);
+  return name;
+}
+
+function gridStep(zoom: number) {
+  if (zoom * 10 >= 14) return 10;
+  if (zoom * 20 >= 14) return 20;
+  return 50;
+}
+
+function fittedZoom(boxWidth: number, boxHeight: number, frameWidth: number, frameHeight: number, frames: number, gridOn: boolean) {
+  const gutterX = gridOn ? AXIS_X : 0;
+  const gutterY = gridOn ? AXIS_Y : 0;
+  const title = 28;
+  const gap = frames > 1 ? 16 : 0;
+  const zoomW = (boxWidth - 8 - gap * (frames - 1) - gutterX * frames) / (frameWidth * frames);
+  const zoomH = (boxHeight - 8 - title - gutterY) / frameHeight;
+  if (!Number.isFinite(zoomW) || !Number.isFinite(zoomH) || zoomW <= 0 || zoomH <= 0) return 1;
+  return Math.min(zoomW, zoomH);
+}
+
+function copyHex(value: string) {
+  const legacy = () => {
+    const field = document.createElement("textarea");
+    field.value = value;
+    field.setAttribute("readonly", "");
+    field.style.position = "fixed";
+    field.style.left = "-9999px";
+    document.body.append(field);
+    field.select();
+    const copied = document.execCommand("copy");
+    field.remove();
+    return copied;
+  };
+  if (!navigator.clipboard?.writeText) return Promise.resolve(legacy());
+  return navigator.clipboard.writeText(value).then(
+    () => true,
+    () => legacy(),
+  );
 }
 
 function plotLine(
@@ -118,8 +167,7 @@ export function SpriteDesk({ sheet, row, frame }: { sheet?: string; row?: string
   const [swatches, setSwatches] = useState<string[]>(BRAND);
   const [zoom, setZoom] = useState(4);
   const [grid, setGrid] = useState(true);
-  const [onion, setOnion] = useState(false);
-  const [seeThrough, setSeeThrough] = useState(0.72);
+  const [beside, setBeside] = useState(false);
   const [compare, setCompare] = useState<"previous" | number>("previous");
   const [underlaySize, setUnderlaySize] = useState<{ width: number; height: number } | null>(null);
   const [size, setSize] = useState({ width: LANDO_FRAME_WIDTH, height: LANDO_FRAME_HEIGHT });
@@ -133,6 +181,9 @@ export function SpriteDesk({ sheet, row, frame }: { sheet?: string; row?: string
   const readoutRef = useRef<HTMLSpanElement>(null);
   const dirtyRef = useRef(dirty);
   const indicesRef = useRef<number[]>([]);
+  const pairRef = useRef(false);
+  const stageRef = useRef<HTMLDivElement>(null);
+  const [stageBox, setStageBox] = useState({ width: 0, height: 0 });
 
   placeRef.current = place;
   dirtyRef.current = dirty;
@@ -162,13 +213,39 @@ export function SpriteDesk({ sheet, row, frame }: { sheet?: string; row?: string
   const indices = inventory?.sheets[place.sheet]?.[String(place.row)] ?? [];
   indicesRef.current = indices;
   const animation = inventory?.animations.find((item) => item.sheet === place.sheet && item.row === place.row) ?? null;
-  const underlayIndex = !onion
+  const besideIndex = !beside
     ? null
     : compare === "previous"
-      ? indices[indices.indexOf(place.frame) - 1]
+      ? (indices[indices.indexOf(place.frame) - 1] ?? null)
       : compare === place.frame
         ? null
         : compare;
+  const pair = beside && besideIndex != null;
+  pairRef.current = pair;
+  const fitZoom = fittedZoom(
+    stageBox.width,
+    stageBox.height,
+    Math.max(size.width, underlaySize?.width ?? size.width),
+    Math.max(size.height, underlaySize?.height ?? size.height),
+    pair ? 2 : 1,
+    grid,
+  );
+  const displayZoom = pair ? (stageBox.width > 0 ? fitZoom : 1) : zoom;
+
+  useEffect(() => {
+    setUnderlaySize(null);
+  }, [place.sheet, place.row, besideIndex]);
+
+  useEffect(() => {
+    const node = stageRef.current;
+    if (!node) return;
+    const observer = new ResizeObserver(([entry]) => {
+      const box = entry.contentRect;
+      setStageBox({ width: Math.round(box.width), height: Math.round(box.height) });
+    });
+    observer.observe(node);
+    return () => observer.disconnect();
+  }, []);
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -294,24 +371,56 @@ export function SpriteDesk({ sheet, row, frame }: { sheet?: string; row?: string
     canvas.getContext("2d")?.putImageData(pixels, 0, 0);
   }
 
-  function pickColour(point: { x: number; y: number }) {
-    const pixels = pixelsRef.current;
-    if (!pixels) return;
-    const offset = (point.y * pixels.width + point.x) * 4;
-    if (pixels.data[offset + 3] < 200) {
-      setTool("erase");
-      setStatus("That pixel is empty, so the rubber is selected.");
+  function pickColour(point: { x: number; y: number }, pixels: ImageData | Uint8ClampedArray, width: number) {
+    if (point.x < 0 || point.y < 0) return;
+    const data = pixels instanceof ImageData ? pixels.data : pixels;
+    const pixelWidth = pixels instanceof ImageData ? pixels.width : width;
+    const offset = (point.y * pixelWidth + point.x) * 4;
+    if (offset < 0 || offset + 3 >= data.length || data[offset + 3] < 200) {
+      setStatus("That pixel is empty. Click a coloured one.");
       return;
     }
-    const next = rgbToHex(pixels.data[offset], pixels.data[offset + 1], pixels.data[offset + 2]);
+    const next = rgbToHex(data[offset], data[offset + 1], data[offset + 2]);
     setColour(next);
     setHex(next);
     setTool("paint");
+    void copyHex(next).then((copied) => {
+      setStatus(copied ? `Copied ${next}.` : `${next} is in the colour box.`);
+    });
+  }
+
+  function pickFromCanvas(point: { x: number; y: number }) {
+    const pixels = pixelsRef.current;
+    if (!pixels) return;
+    pickColour(point, pixels, pixels.width);
+  }
+
+  function pickFromImage(event: { clientX: number; clientY: number; currentTarget: HTMLImageElement }) {
+    const image = event.currentTarget;
+    if (!image.naturalWidth || !image.naturalHeight) return;
+    const rect = image.getBoundingClientRect();
+    const point = {
+      x: Math.floor(((event.clientX - rect.left) / rect.width) * image.naturalWidth),
+      y: Math.floor(((event.clientY - rect.top) / rect.height) * image.naturalHeight),
+    };
+    const scratch = document.createElement("canvas");
+    scratch.width = image.naturalWidth;
+    scratch.height = image.naturalHeight;
+    const context = scratch.getContext("2d", { willReadFrequently: true });
+    if (!context) return;
+    context.drawImage(image, 0, 0);
+    pickColour(point, context.getImageData(0, 0, scratch.width, scratch.height), scratch.width);
   }
 
   function showReadout(point: { x: number; y: number } | null) {
     if (!readoutRef.current) return;
-    readoutRef.current.textContent = point ? `${point.x}, ${point.y}` : "—, —";
+    if (!point) {
+      readoutRef.current.textContent = "—, —";
+      return;
+    }
+    const step = grid ? gridStep(displayZoom) : 0;
+    const cell = step > 0 ? ` · ${columnLetter(Math.floor(point.x / step))}${Math.floor(point.y / step) * step}` : "";
+    readoutRef.current.textContent = `${point.x}, ${point.y}${cell}`;
   }
 
   function pointerDown(event: React.PointerEvent<HTMLCanvasElement>) {
@@ -321,7 +430,7 @@ export function SpriteDesk({ sheet, row, frame }: { sheet?: string; row?: string
     showReadout(point);
     if (!point) return;
     if (toolRef.current === "pick" || event.altKey) {
-      pickColour(point);
+      pickFromCanvas(point);
       return;
     }
     const shot = snapshot();
@@ -484,6 +593,7 @@ export function SpriteDesk({ sheet, row, frame }: { sheet?: string; row?: string
       if (event.key.toLowerCase() === "b") setTool("paint");
       if (event.key.toLowerCase() === "e") setTool("erase");
       if (event.key.toLowerCase() === "i") setTool("pick");
+      if ((event.key === "[" || event.key === "]") && pairRef.current) return;
       if (event.key === "[") setZoom((current) => Math.max(2, current - 1));
       if (event.key === "]") setZoom((current) => Math.min(10, current + 1));
       const current = placeRef.current;
@@ -522,16 +632,12 @@ export function SpriteDesk({ sheet, row, frame }: { sheet?: string; row?: string
     }
   }
 
-  const displayWidth = size.width * zoom;
-  const displayHeight = size.height * zoom;
-  const stageWidth = Math.max(displayWidth, (underlaySize?.width ?? 0) * zoom);
-  const stageHeight = Math.max(displayHeight, (underlaySize?.height ?? 0) * zoom);
   const oddSize = size.width !== LANDO_FRAME_WIDTH || size.height !== LANDO_FRAME_HEIGHT;
 
   return (
-    <main className="min-h-dvh bg-sea text-ink">
-      <div className="mx-auto grid max-w-[1500px] gap-4 px-4 py-4 lg:grid-cols-[320px_minmax(0,1fr)]">
-        <aside className="grid content-start gap-3">
+    <main className="h-dvh overflow-hidden bg-sea text-ink">
+      <div className="mx-auto grid h-full min-h-0 w-full max-w-[1600px] grid-rows-[auto_minmax(0,1fr)] gap-3 px-4 py-3 lg:grid-cols-[260px_minmax(0,1fr)] lg:grid-rows-1">
+        <aside className="grid max-h-32 content-start gap-3 overflow-auto lg:max-h-none lg:min-h-0">
           <div>
             <Link href="/" className="font-extrabold underline">
               Back to Lando
@@ -579,8 +685,8 @@ export function SpriteDesk({ sheet, row, frame }: { sheet?: string; row?: string
           </section>
         </aside>
 
-        <section className="grid content-start gap-3">
-          <div className="chunky bg-paper p-3">
+        <section className="flex min-h-0 min-w-0 flex-col gap-3 overflow-hidden">
+          <div className="chunky max-h-[42%] shrink-0 overflow-auto bg-paper p-3">
             <div className="flex flex-wrap items-center gap-2">
               <ToolButton active={tool === "paint"} onClick={() => setTool("paint")}>
                 Paint
@@ -647,21 +753,21 @@ export function SpriteDesk({ sheet, row, frame }: { sheet?: string; row?: string
               <label className="flex min-h-11 items-center gap-2 font-extrabold">
                 <input
                   type="checkbox"
-                  checked={onion}
-                  onChange={(event) => setOnion(event.target.checked)}
+                  checked={beside}
+                  onChange={(event) => setBeside(event.target.checked)}
                 />
-                Lay over another frame
+                Show another frame beside this one
               </label>
               <label className="flex items-center gap-2 font-extrabold">
-                Underneath
                 <select
                   className="field h-11 w-auto"
+                  aria-label="Frame beside this one"
                   value={compare === "previous" ? "previous" : String(compare)}
-                  disabled={!onion}
+                  disabled={!beside}
                   onChange={(event) => {
                     const value = event.target.value;
                     setCompare(value === "previous" ? "previous" : Number(value));
-                    setOnion(true);
+                    setBeside(true);
                   }}
                 >
                   <option value="previous">The frame before</option>
@@ -674,28 +780,26 @@ export function SpriteDesk({ sheet, row, frame }: { sheet?: string; row?: string
                     ))}
                 </select>
               </label>
-              <label className="flex items-center gap-2 font-extrabold">
-                See-through
-                <input
-                  type="range"
-                  min={0.25}
-                  max={1}
-                  step={0.01}
-                  value={onion ? seeThrough : 1}
-                  disabled={!onion}
-                  onChange={(event) => setSeeThrough(Number(event.target.value))}
-                />
-              </label>
               <label className="flex min-h-11 items-center gap-2 font-extrabold">
                 <input type="checkbox" checked={grid} onChange={(event) => setGrid(event.target.checked)} />
-                Grid
+                Pixel grid
               </label>
               <span className="font-extrabold">
-                Zoom {zoom}×
-                <button type="button" className="ml-2 underline" onClick={() => setZoom((current) => Math.max(2, current - 1))}>
+                {pair ? `Fitted ${displayZoom.toFixed(1)}×` : `Zoom ${zoom}×`}
+                <button
+                  type="button"
+                  className="ml-2 underline disabled:opacity-40"
+                  disabled={pair}
+                  onClick={() => setZoom((current) => Math.max(2, current - 1))}
+                >
                   Smaller
                 </button>
-                <button type="button" className="ml-2 underline" onClick={() => setZoom((current) => Math.min(10, current + 1))}>
+                <button
+                  type="button"
+                  className="ml-2 underline disabled:opacity-40"
+                  disabled={pair}
+                  onClick={() => setZoom((current) => Math.min(10, current + 1))}
+                >
                   Bigger
                 </button>
               </span>
@@ -741,7 +845,7 @@ export function SpriteDesk({ sheet, row, frame }: { sheet?: string; row?: string
               {status}
             </p>
             <p className="mt-1 text-sm font-bold">
-              Drag to draw. Right-click or Alt-click picks a colour. Arrows move frames. [ and ] zoom. Command-Z undoes. Command-S saves.
+              Drag to draw. Pick colour, then click a pixel to copy its hex. Letters run across the darker grid lines and numbers run down. Two frames shrink to fit the window. Arrows move frames. [ and ] zoom. Command-Z undoes. Command-S saves.
             </p>
           </div>
 
@@ -772,76 +876,169 @@ export function SpriteDesk({ sheet, row, frame }: { sheet?: string; row?: string
             </div>
           ) : null}
 
-          <div className="overflow-auto rounded-[14px] border-[3px] border-ink bg-paper p-3">
-            <div
-              className="relative"
-              style={{
-                width: stageWidth,
-                height: stageHeight,
-                background: "repeating-conic-gradient(#d5d0c4 0% 25%, #b7b2a6 0% 50%)",
-                backgroundSize: `${zoom * 2}px ${zoom * 2}px`,
-              }}
-            >
-              {onion && underlayIndex != null ? (
-                // eslint-disable-next-line @next/next/no-img-element
-                <img
-                  src={frameSrc(place.sheet, place.row, underlayIndex, revision)}
-                  alt=""
-                  className="pointer-events-none absolute top-0 left-0 [image-rendering:pixelated]"
+          <div
+            ref={stageRef}
+            className={`min-h-0 w-full min-w-0 flex-1 rounded-[14px] border-[3px] border-ink bg-paper p-3 ${
+              beside ? "overflow-hidden" : "overflow-auto"
+            }`}
+          >
+            {beside && besideIndex == null ? (
+              <p className="mb-2 font-extrabold">This is the first frame. Pick another one to sit beside it.</p>
+            ) : null}
+            <div className="flex h-full items-start justify-center gap-4">
+              <FrameBoard
+                title={`This frame · ${size.width} × ${size.height}`}
+                zoom={displayZoom}
+                width={size.width}
+                height={size.height}
+                grid={grid}
+              >
+                <canvas
+                  ref={canvasRef}
+                  aria-label="Pixel canvas"
+                  className="absolute top-0 left-0 touch-none [image-rendering:pixelated]"
                   style={{
-                    width: (underlaySize?.width ?? size.width) * zoom,
-                    height: (underlaySize?.height ?? size.height) * zoom,
+                    width: size.width * displayZoom,
+                    height: size.height * displayZoom,
+                    cursor: tool === "pick" ? "crosshair" : "cell",
                   }}
-                  onLoad={(event) => {
-                    setUnderlaySize({
-                      width: event.currentTarget.naturalWidth,
-                      height: event.currentTarget.naturalHeight,
-                    });
-                  }}
-                />
-              ) : null}
-              <canvas
-                ref={canvasRef}
-                aria-label="Pixel canvas"
-                className="absolute top-0 left-0 touch-none [image-rendering:pixelated]"
-                style={{
-                  width: displayWidth,
-                  height: displayHeight,
-                  opacity: onion ? seeThrough : 1,
-                  cursor: tool === "pick" ? "crosshair" : "cell",
-                }}
-                onPointerDown={pointerDown}
-                onPointerMove={pointerMove}
-                onPointerUp={pointerUp}
-                onPointerCancel={pointerUp}
+                  onPointerDown={pointerDown}
+                  onPointerMove={pointerMove}
+                  onPointerUp={pointerUp}
+                  onPointerCancel={pointerUp}
                 onContextMenu={(event) => {
                   event.preventDefault();
                   const point = locate(event);
-                  if (point) pickColour(point);
+                  if (point) pickFromCanvas(point);
                 }}
-              />
-              {grid ? (
-                <div
-                  className="pointer-events-none absolute top-0 left-0"
-                  style={{
-                    width: displayWidth,
-                    height: displayHeight,
-                    backgroundImage:
-                      "linear-gradient(to right, rgba(42,36,27,0.22) 1px, transparent 1px), linear-gradient(to bottom, rgba(42,36,27,0.22) 1px, transparent 1px)",
-                    backgroundSize: `${zoom}px ${zoom}px`,
-                  }}
                 />
+              </FrameBoard>
+              {pair && besideIndex != null ? (
+                  <FrameBoard
+                    title={`Frame ${besideIndex + 1}${underlaySize ? ` · ${underlaySize.width} × ${underlaySize.height}` : ""}`}
+                    zoom={displayZoom}
+                    width={underlaySize?.width ?? size.width}
+                    height={underlaySize?.height ?? size.height}
+                    grid={grid}
+                  >
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img
+                      src={frameSrc(place.sheet, place.row, besideIndex, revision)}
+                      alt={`Frame ${besideIndex + 1} beside the one you are painting`}
+                      draggable={false}
+                      className="absolute top-0 left-0 [image-rendering:pixelated]"
+                      style={{
+                        width: (underlaySize?.width ?? size.width) * displayZoom,
+                        height: (underlaySize?.height ?? size.height) * displayZoom,
+                        cursor: tool === "pick" ? "crosshair" : "default",
+                      }}
+                      onPointerDown={(event) => {
+                        if (event.button !== 0 || tool !== "pick") return;
+                        event.preventDefault();
+                        pickFromImage(event);
+                      }}
+                      onContextMenu={(event) => {
+                        event.preventDefault();
+                        pickFromImage(event);
+                      }}
+                      onLoad={(event) => {
+                        setUnderlaySize({
+                          width: event.currentTarget.naturalWidth,
+                          height: event.currentTarget.naturalHeight,
+                        });
+                      }}
+                    />
+                  </FrameBoard>
               ) : null}
             </div>
-            {onion && underlaySize && (underlaySize.width !== size.width || underlaySize.height !== size.height) ? (
-              <p className="mt-2 font-extrabold text-coral">
-                The frame underneath is {underlaySize.width} × {underlaySize.height}, so the pixels do not share a grid.
-              </p>
-            ) : null}
           </div>
         </section>
       </div>
     </main>
+  );
+}
+
+function FrameBoard({
+  title,
+  zoom,
+  width,
+  height,
+  grid,
+  children,
+}: {
+  title: string;
+  zoom: number;
+  width: number;
+  height: number;
+  grid: boolean;
+  children: ReactNode;
+}) {
+  const gutterX = grid ? AXIS_X : 0;
+  const gutterY = grid ? AXIS_Y : 0;
+  return (
+    <div className="shrink-0">
+      <p className="mb-1 h-6 truncate font-extrabold">{title}</p>
+      <div className="relative" style={{ width: width * zoom + gutterX, height: height * zoom + gutterY }}>
+        {grid ? <AxisLabels zoom={zoom} width={width} height={height} /> : null}
+        <div
+          className="absolute"
+          style={{
+            left: gutterX,
+            top: gutterY,
+            width: width * zoom,
+            height: height * zoom,
+            background: "repeating-conic-gradient(#d5d0c4 0% 25%, #b7b2a6 0% 50%)",
+            backgroundSize: `${Math.max(zoom * 2, 4)}px ${Math.max(zoom * 2, 4)}px`,
+          }}
+        >
+          {children}
+          {grid ? <PixelGrid zoom={zoom} width={width} height={height} /> : null}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function AxisLabels({ zoom, width, height }: { zoom: number; width: number; height: number }) {
+  const step = gridStep(zoom);
+  const columns = Math.ceil(width / step);
+  const rows = Math.ceil(height / step);
+  return (
+    <>
+      {Array.from({ length: columns }, (_, index) => (
+        <span
+          key={`c${index}`}
+          className="pointer-events-none absolute overflow-hidden text-center font-mono text-[10px] leading-4 font-bold"
+          style={{ top: 0, left: AXIS_X + index * step * zoom, width: step * zoom }}
+        >
+          {columnLetter(index)}
+        </span>
+      ))}
+      {Array.from({ length: rows }, (_, index) => (
+        <span
+          key={`r${index}`}
+          className="pointer-events-none absolute overflow-hidden text-right font-mono text-[10px] leading-3 font-bold"
+          style={{ top: AXIS_Y + index * step * zoom, left: 0, width: AXIS_X - 4 }}
+        >
+          {index * step}
+        </span>
+      ))}
+    </>
+  );
+}
+
+function PixelGrid({ zoom, width, height }: { zoom: number; width: number; height: number }) {
+  return (
+    <div
+      className="pointer-events-none absolute top-0 left-0"
+      style={{
+        width: width * zoom,
+        height: height * zoom,
+        backgroundImage:
+          "linear-gradient(to right, rgba(42,36,27,0.55) 1px, transparent 1px), linear-gradient(to bottom, rgba(42,36,27,0.55) 1px, transparent 1px), linear-gradient(to right, rgba(42,36,27,0.2) 1px, transparent 1px), linear-gradient(to bottom, rgba(42,36,27,0.2) 1px, transparent 1px)",
+        backgroundSize: `${zoom * 10}px ${zoom * 10}px, ${zoom * 10}px ${zoom * 10}px, ${zoom}px ${zoom}px, ${zoom}px ${zoom}px`,
+      }}
+    />
   );
 }
 
