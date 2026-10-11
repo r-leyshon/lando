@@ -45,6 +45,8 @@ export function CountryMap({
   const pointers = useRef(new Map<number, Point>());
   const pinch = useRef<{ distance: number; zoom: number } | null>(null);
   const moved = useRef(false);
+  const press = useRef<PieceProps | null>(null);
+  const origin = useRef<Point | null>(null);
   const gesturing = useRef(false);
   const raf = useRef(0);
   const zoomAnim = useRef(0);
@@ -255,6 +257,10 @@ export function CountryMap({
 
   function onPointerDown(event: ReactPointerEvent<HTMLDivElement>) {
     if ((event.target as Element).closest("button")) return;
+    const path = (event.target as Element).closest("path");
+    const index = path ? Number(path.getAttribute("data-index")) : NaN;
+    press.current = Number.isInteger(index) ? (featuresRef.current[index]?.properties ?? null) : null;
+    event.preventDefault();
     window.cancelAnimationFrame(zoomAnim.current);
     window.cancelAnimationFrame(raf.current);
     raf.current = 0;
@@ -264,6 +270,7 @@ export function CountryMap({
     if (pointers.current.size === 1) {
       moved.current = false;
       pinch.current = null;
+      origin.current = { x: event.clientX, y: event.clientY };
     }
     if (pointers.current.size === 2) {
       const [first, second] = [...pointers.current.values()];
@@ -288,9 +295,13 @@ export function CountryMap({
       schedulePaint();
       return;
     }
+    if (!moved.current) {
+      const start = origin.current ?? previous;
+      if (Math.hypot(next.x - start.x, next.y - start.y) <= 3) return;
+      moved.current = true;
+    }
     const dx = next.x - previous.x;
     const dy = next.y - previous.y;
-    if (Math.hypot(dx, dy) > 3) moved.current = true;
     if (dx !== 0 || dy !== 0) {
       turn(dx, dy);
       schedulePaint();
@@ -301,19 +312,19 @@ export function CountryMap({
     pointers.current.delete(event.pointerId);
     pinch.current = null;
     if (pointers.current.size > 0) return;
+    const hit = press.current;
+    press.current = null;
+    origin.current = null;
     const wasDrag = moved.current;
+    moved.current = false;
     settle();
-    if (wasDrag) {
-      window.setTimeout(() => {
-        moved.current = false;
-      }, 0);
-    }
+    if (!wasDrag && hit) activate(hit);
   }
 
   return (
     <div
       ref={frame}
-      className="relative h-full w-full cursor-grab touch-none bg-[#8fd4ea] active:cursor-grabbing"
+      className="relative h-full w-full cursor-grab touch-none select-none bg-[#8fd4ea] active:cursor-grabbing"
       onPointerDown={onPointerDown}
       onPointerMove={onPointerMove}
       onPointerUp={onPointerEnd}
@@ -327,14 +338,13 @@ export function CountryMap({
             return (
               <path
                 key={String(feature.id ?? index)}
-                className="pointer-events-auto"
-                fill="transparent"
-                stroke="none"
+                data-index={index}
+                className="pointer-events-auto fill-transparent stroke-transparent outline-none focus-visible:stroke-ink"
+                style={{ strokeWidth: 2 }}
                 tabIndex={props.interactive || props.note ? 0 : -1}
                 role="button"
                 aria-label={label(props)}
                 aria-pressed={props.iso2 != null && props.iso2 === selected}
-                onClick={() => activate(props)}
                 onKeyDown={(event) => {
                   if (event.key === "Enter" || event.key === " ") {
                     event.preventDefault();
