@@ -2,13 +2,81 @@
 
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
-import { useEffect, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import { Lando, Speech } from "@/components/lando/Lando";
 import { usePlayer } from "@/components/player/PlayerProvider";
 import { MODES, MODE_LABELS, type GameMode } from "@/lib/boards";
 import { bestStreak } from "@/lib/profile";
 
 type Entry = { playerId: string; nickname: string; bestStreak: number };
+
+function GameMenu({ mode, onChange }: { mode: GameMode; onChange: (mode: GameMode) => void }) {
+  const [open, setOpen] = useState(false);
+  const root = useRef<HTMLDivElement>(null);
+  const menuId = useId();
+
+  useEffect(() => {
+    if (!open) return;
+    const closeOnOutside = (event: PointerEvent) => {
+      if (!root.current?.contains(event.target as Node)) setOpen(false);
+    };
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setOpen(false);
+    };
+    document.addEventListener("pointerdown", closeOnOutside);
+    document.addEventListener("keydown", closeOnEscape);
+    return () => {
+      document.removeEventListener("pointerdown", closeOnOutside);
+      document.removeEventListener("keydown", closeOnEscape);
+    };
+  }, [open]);
+
+  return (
+    <div ref={root} className="relative">
+      <p id={`${menuId}-label`} className="font-extrabold">
+        Game
+      </p>
+      <button
+        type="button"
+        className="chunky mt-1 flex min-h-12 w-full items-center justify-between bg-paper px-4 text-left font-extrabold"
+        aria-label={`Game: ${MODE_LABELS[mode]}`}
+        aria-haspopup="listbox"
+        aria-expanded={open}
+        aria-controls={menuId}
+        onClick={() => setOpen((current) => !current)}
+      >
+        <span>{MODE_LABELS[mode]}</span>
+        <span aria-hidden className={`text-sm ${open ? "rotate-180" : ""}`}>
+          ▼
+        </span>
+      </button>
+      {open ? (
+        <ul id={menuId} role="listbox" aria-labelledby={`${menuId}-label`} className="chunky absolute z-10 mt-2 w-full overflow-hidden bg-paper">
+          {MODES.map((id) => {
+            const selected = id === mode;
+            return (
+              <li key={id}>
+                <button
+                  type="button"
+                  role="option"
+                  aria-selected={selected}
+                  className={`flex min-h-12 w-full items-center justify-between px-4 text-left font-extrabold ${selected ? "bg-sand" : "bg-paper hover:bg-wood"}`}
+                  onClick={() => {
+                    onChange(id);
+                    setOpen(false);
+                  }}
+                >
+                  <span>{MODE_LABELS[id]}</span>
+                  {selected ? <span aria-hidden>✓</span> : null}
+                </button>
+              </li>
+            );
+          })}
+        </ul>
+      ) : null}
+    </div>
+  );
+}
 
 export function LeaderboardScreen() {
   const params = useSearchParams();
@@ -55,17 +123,8 @@ export function LeaderboardScreen() {
             : `Streaks for ${MODE_LABELS[mode]} saved on this phone. Cloud scores appear when a database is connected.`}
         </Speech>
       </div>
-      <div className="mt-4 grid gap-3">
-        <label className="grid gap-1 font-extrabold">
-          Game
-          <select className="field" value={mode} onChange={(event) => setMode(event.target.value as GameMode)}>
-            {MODES.map((id) => (
-              <option key={id} value={id}>
-                {MODE_LABELS[id]}
-              </option>
-            ))}
-          </select>
-        </label>
+      <div className="mt-4">
+        <GameMenu mode={mode} onChange={setMode} />
       </div>
       <ol className="mt-4 grid gap-2">
         {database && entries.length === 0 ? (
