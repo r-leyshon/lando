@@ -1,5 +1,5 @@
 import { countries } from "../lib/countries";
-import { judgeGuess } from "../lib/spelling";
+import { judgeGuess, letterTiles, spellingTarget } from "../lib/spelling";
 
 const byName = (name: string) => {
   const country = countries.find((item) => item.name === name || item.iso2 === name);
@@ -38,3 +38,15 @@ expect("prefix sao", judgeGuess("Sao Tome", sao, countries).kind, "near");
 expect("ambiguous united", judgeGuess("United", byName("US"), countries).kind, "hint");
 expect("niger itself", judgeGuess("Niger", niger, countries).kind, "correct");
 expect("guinea itself", judgeGuess("Guinea", guinea, countries).kind, "correct");
+expect("britain alias", judgeGuess("Britain", uk, countries).kind, "correct");
+expect("brirain target", spellingTarget("Brirain", uk), "britain");
+expect(
+  "brirain tiles",
+  letterTiles("Brirain", spellingTarget("Brirain", uk))
+    .map((tile) => tile.tone[0])
+    .join(""),
+  "gggrggg",
+);
+expect("kingdom typo target", spellingTarget("United Kingdm", uk), "United Kingdom");
+expect("united hint target", spellingTarget("United", uk), "United Kingdom");
+expect("america typo target", spellingTarget("Americaa", byName("US")), "america");

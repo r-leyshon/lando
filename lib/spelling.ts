@@ -31,6 +31,39 @@ export function letterTiles(guess: string, target: string, allGreen = false): Le
   });
 }
 
+function greenCount(guess: string, target: string) {
+  const typed = namePieces(guess);
+  const answer = namePieces(target);
+  let greens = 0;
+  for (let index = 0; index < typed.length; index += 1) {
+    if (typed[index].key !== " " && typed[index].key === answer[index]?.key) greens += 1;
+  }
+  return greens;
+}
+
+function letterCount(value: string) {
+  return namePieces(value).filter((piece) => piece.key !== " ").length;
+}
+
+/** The accepted spelling this guess is closest to, so tiles line up with Britain or United Kingdom. */
+export function spellingTarget(guess: string, country: Country) {
+  const forms = [country.name, ...country.aliases];
+  const typedLetters = letterCount(guess);
+  let best = country.name;
+  let bestGreens = -1;
+  let bestGap = Infinity;
+  for (const form of forms) {
+    const greens = greenCount(guess, form);
+    const gap = Math.abs(letterCount(form) - typedLetters);
+    if (greens > bestGreens || (greens === bestGreens && gap < bestGap)) {
+      best = form;
+      bestGreens = greens;
+      bestGap = gap;
+    }
+  }
+  return best;
+}
+
 export type Judgement =
   | { kind: "correct" }
   | { kind: "hint"; message: string }

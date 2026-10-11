@@ -8,17 +8,26 @@ import { Silhouette } from "@/components/map/Silhouette";
 import { Lando, Speech } from "@/components/lando/Lando";
 import { AnswerEntry, LetterRow } from "@/components/spelling/AnswerTiles";
 import { usePlayer } from "@/components/player/PlayerProvider";
-import { MODE_LABELS, type GameMode } from "@/lib/boards";
-import { countryByIso, type BoardId, type Country } from "@/lib/countries";
-import { requiredIsos } from "@/lib/map-model";
+import {
+  BOARD_COLORS,
+  BOARD_LABELS,
+  CONTINENTS,
+  continentRoster,
+  isContinent,
+  MODE_LABELS,
+  type ContinentId,
+  type GameMode,
+} from "@/lib/boards";
+import { countryByIso, quizCountries, type BoardId, type Country } from "@/lib/countries";
 import { applyOutcome, pickTricky, type Outcome, type Profile } from "@/lib/profile";
 import { sfx } from "@/lib/sound";
-import { judgeGuess, letterTiles, type LetterTile } from "@/lib/spelling";
+import { judgeGuess, letterTiles, spellingTarget, type LetterTile } from "@/lib/spelling";
 import { countries } from "@/lib/countries";
 import type { LandoMood } from "@/lib/sprites";
 
 type Phase =
-  | { kind: "choose" }
+  | { kind: "continent" }
+  | { kind: "choose"; tiles?: LetterTile[] }
   | { kind: "type"; iso: string }
   | { kind: "ask"; iso: string }
   | { kind: "feedback"; tone: "good" | "bad"; iso: string; reveal: string | null; tiles?: LetterTile[] }
@@ -33,6 +42,7 @@ type RunState = {
   streak: number;
   best: number;
   stamped: string[];
+  continent: ContinentId | null;
   phase: Phase;
   line: string;
   mood: LandoMood;
@@ -66,7 +76,9 @@ function loadSaved(mode: GameMode) {
   const raw = window.sessionStorage.getItem(runKey(mode));
   if (!raw) return null;
   try {
-    return JSON.parse(raw) as Pick<RunState, "runId" | "startedAt" | "streak" | "best" | "stamped">;
+    return JSON.parse(raw) as Pick<RunState, "runId" | "startedAt" | "streak" | "best" | "stamped"> & {
+      continent?: ContinentId | null;
+    };
   } catch {
     return null;
   }
@@ -102,19 +114,52 @@ function promptFor(
   };
 }
 
+function continentLeft(stamped: string[], continent: ContinentId) {
+  return continentRoster(continent).filter((country) => !stamped.includes(country.iso2));
+}
+
+function askForContinent(current: RunState, line: string, mood: LandoMood): RunState {
+  return { ...current, phase: { kind: "continent" }, line, mood, practiceKind: null };
+}
+
+function beginContinent(current: RunState, mode: GameMode, id: ContinentId): RunState {
+  const next = { ...current, continent: id };
+  const label = BOARD_LABELS[id];
+  if (continentLeft(current.stamped, id).length === 0) {
+    return askForContinent(next, `You've named every country in ${label}. Pick another part.`, "wave");
+  }
+  if (mode === "name") {
+    return {
+      ...next,
+      phase: { kind: "choose" },
+      mood: "wave",
+      practiceKind: null,
+      line: `${label} it is. Tap a country, then type its name.`,
+    };
+  }
+  return nextQuestion(next, mode, null);
+}
+
 function createRun(mode: GameMode, profile: Profile | null): RunState {
   const saved = loadSaved(mode);
   const base = saved ?? freshRun();
-  const required = requiredIsos(WORLD);
-  const finished = mode !== "practice" && required.every((iso) => base.stamped.includes(iso)) && required.length > 0;
+  const continent = saved?.continent && isContinent(saved.continent) ? saved.continent : null;
+  const shell: RunState = {
+    ...base,
+    continent,
+    phase: { kind: "continent" },
+    line: "Which part of the world shall we start with?",
+    mood: "wave",
+    practiceKind: null,
+  };
+  const finished = mode !== "practice" && quizCountries.every((country) => base.stamped.includes(country.iso2));
 
   if (finished && saved) {
     return {
-      ...base,
+      ...shell,
       phase: { kind: "victory" },
       line: "You named every country on the map!",
       mood: "celebrate",
-      practiceKind: null,
     };
   }
 
@@ -122,49 +167,39 @@ function createRun(mode: GameMode, profile: Profile | null): RunState {
     const country = profile ? pickTricky(profile, null) : null;
     if (!country) {
       return {
-        ...base,
+        ...shell,
+        continent: null,
         phase: { kind: "empty" },
         line: "Play another game first. I'll remember the countries you miss.",
         mood: "think",
-        practiceKind: null,
       };
     }
     const prompt = promptFor(mode, "where", country);
-    return { ...base, ...prompt, practiceKind: "where" };
+    return { ...shell, continent: null, ...prompt, practiceKind: "where" };
   }
 
+  if (!continent) return shell;
+  if (continentLeft(base.stamped, continent).length === 0) {
+    return askForContinent(
+      shell,
+      `That's every country in ${BOARD_LABELS[continent]}. Which part shall we do next?`,
+      "celebrate",
+    );
+  }
   if (mode === "name") {
     return {
-      ...base,
+      ...shell,
       phase: { kind: "choose" },
-      mood: "wave",
-      practiceKind: null,
       line: "Tap a country, then type its name.",
     };
   }
-
-  if (mode === "where" || mode === "silhouette") {
-    const iso = pickIso(requiredIsos(WORLD), base.stamped, null);
-    const country = iso ? countryByIso.get(iso) : null;
-    if (!country) {
-      return {
-        ...base,
-        phase: { kind: "victory" },
-        line: "You named every country on the map!",
-        mood: "celebrate",
-        practiceKind: null,
-      };
-    }
-    const prompt = promptFor(mode, null, country);
-    return { ...base, ...prompt, practiceKind: null };
-  }
+  if (mode === "where" || mode === "silhouette") return nextQuestion(shell, mode, null);
 
   return {
-    ...base,
+    ...shell,
     phase: { kind: "empty" },
     line: "That game is not ready yet.",
     mood: "oops",
-    practiceKind: null,
   };
 }
 
@@ -174,7 +209,7 @@ export function GameScreen({ mode }: { mode: GameMode }) {
   const [run, setRun] = useState<RunState | null>(null);
   const [draft, setDraft] = useState("");
   const [marks, setMarks] = useState<LetterTile[] | null>(null);
-  const helped = useRef(false);
+  const tries = useRef(0);
   const [confirmReset, setConfirmReset] = useState(false);
   const profileRef = useRef(profile);
   profileRef.current = profile;
@@ -201,6 +236,7 @@ export function GameScreen({ mode }: { mode: GameMode }) {
         streak: run.streak,
         best: run.best,
         stamped: run.stamped,
+        continent: run.continent,
       }),
     );
   }, [mode, run]);
@@ -209,6 +245,7 @@ export function GameScreen({ mode }: { mode: GameMode }) {
     run && (run.phase.kind === "type" || run.phase.kind === "feedback") ? `${run.phase.kind}:${run.phase.iso}` : run?.phase.kind ?? "";
 
   useEffect(() => {
+    tries.current = 0;
     setDraft("");
     setMarks(null);
   }, [answerKey]);
@@ -232,8 +269,10 @@ export function GameScreen({ mode }: { mode: GameMode }) {
   }
 
   const label = MODE_LABELS[mode];
-  const required = mode === "practice" ? [] : requiredIsos(WORLD);
-  const done = required.filter((iso) => run.stamped.includes(iso)).length;
+  const worldTotal = quizCountries.length;
+  const worldDone = quizCountries.filter((country) => run.stamped.includes(country.iso2)).length;
+  const here = run.continent ? continentRoster(run.continent) : [];
+  const hereDone = here.filter((country) => run.stamped.includes(country.iso2)).length;
   const stamped = new Set(run.stamped);
   const selected =
     run.phase.kind === "type" || (run.phase.kind === "feedback" && run.phase.tone === "good")
@@ -242,7 +281,7 @@ export function GameScreen({ mode }: { mode: GameMode }) {
   const reveal = run.phase.kind === "feedback" ? run.phase.reveal : null;
   const showSilhouette =
     mode === "silhouette" || (mode === "practice" && run.practiceKind === "silhouette");
-  const showMap = !showSilhouette && run.phase.kind !== "empty";
+  const showMap = run.phase.kind === "continent" || (!showSilhouette && run.phase.kind !== "empty");
   const activeIso =
     run.phase.kind === "type" || run.phase.kind === "ask" || run.phase.kind === "feedback"
       ? run.phase.iso
@@ -269,7 +308,7 @@ export function GameScreen({ mode }: { mode: GameMode }) {
     if (!country || !run) return;
     const streak = run.streak + 1;
     const completed =
-      mode !== "practice" && requiredIsos(WORLD).every((id) => id === iso || run.stamped.includes(id));
+      mode !== "practice" && quizCountries.every((country) => country.iso2 === iso || run.stamped.includes(country.iso2));
     record(iso, outcome, streak, completed);
     if (streak % 5 === 0) sfx.fanfare();
     else sfx.correct();
@@ -313,36 +352,55 @@ export function GameScreen({ mode }: { mode: GameMode }) {
     const result = judgeGuess(raw, country, countries);
     if (result.kind === "correct") {
       const tiles = letterTiles(raw, country.name, true);
+      tries.current = 0;
       setMarks(tiles);
-      onCorrect(iso, helped.current ? "near" : "correct", tiles);
-      helped.current = false;
+      onCorrect(iso, "correct", tiles);
       setDraft("");
       setMarks(null);
       return;
     }
-    const target = result.kind === "near" ? result.display : country.name;
-    const tiles = letterTiles(raw, target);
-    setMarks(tiles);
     if (result.kind === "hint") {
+      setMarks(letterTiles(raw, spellingTarget(raw, country)));
       setRun((current) => (current ? { ...current, line: result.message, mood: "think" } : current));
       return;
     }
-    if (result.kind === "near") {
-      sfx.near();
-      helped.current = true;
-      setRun((current) =>
-        current
-          ? { ...current, line: "Nearly! Green letters are in the right place. Fix the red ones.", mood: "think" }
-          : current,
-      );
+    const tiles = letterTiles(raw, spellingTarget(raw, country));
+    const attempt = tries.current + 1;
+    tries.current = attempt;
+    setMarks(tiles);
+    record(iso, "miss", 0, false);
+    sfx.miss();
+    if (attempt >= 3) {
+      tries.current = 0;
+      setDraft("");
+      setRun((current) => {
+        if (!current) return current;
+        const line = `The name is ${country.name}. ${mode === "name" ? "Tap another country." : STREAK_RESET}`;
+        if (mode === "name") {
+          return { ...current, streak: 0, phase: { kind: "choose", tiles }, line, mood: "oops" };
+        }
+        return {
+          ...current,
+          streak: 0,
+          phase: { kind: "feedback", tone: "bad", iso, reveal: iso, tiles },
+          line,
+          mood: "oops",
+        };
+      });
       return;
     }
-    helped.current = false;
-    if (result.kind === "mixup") {
-      onMiss(iso, `${result.message} ${STREAK_RESET}`, "miss", tiles);
-      return;
-    }
-    onMiss(iso, `The name is ${country.name}. ${STREAK_RESET}`, "miss", tiles);
+    const left = 3 - attempt;
+    const triesLine = left === 1 ? "1 try left." : `${left} tries left.`;
+    setRun((current) => {
+      if (!current) return current;
+      const broke = current.streak > 0 ? ` ${STREAK_RESET}` : "";
+      return {
+        ...current,
+        streak: 0,
+        line: `Not quite. Green letters are in the right place. ${triesLine}${broke}`,
+        mood: "oops",
+      };
+    });
   }
 
   function onPick(hit: { iso2: string } | { note: string }) {
@@ -353,9 +411,31 @@ export function GameScreen({ mode }: { mode: GameMode }) {
     }
     if (run.phase.kind === "feedback" || run.phase.kind === "victory") return;
     sfx.tap();
-    helped.current = false;
+    tries.current = 0;
     setDraft("");
     setMarks(null);
+    if (run.phase.kind === "continent") {
+      const country = countryByIso.get(hit.iso2);
+      if (country && isContinent(country.primary)) {
+        const id = country.primary;
+        setRun((current) => (current ? beginContinent(current, mode, id) : current));
+      }
+      return;
+    }
+    const picked = countryByIso.get(hit.iso2);
+    const playing = run.continent;
+    if (playing && picked && isContinent(picked.primary) && picked.primary !== playing && run.phase.kind !== "ask") {
+      setRun((current) =>
+        current
+          ? {
+              ...current,
+              line: `${picked.name} is in ${BOARD_LABELS[picked.primary]}. We're doing ${BOARD_LABELS[playing]}.`,
+              mood: "think",
+            }
+          : current,
+      );
+      return;
+    }
     if (run.phase.kind === "ask") {
       if (hit.iso2 === run.phase.iso) onCorrect(hit.iso2, "correct");
       else {
@@ -396,9 +476,34 @@ export function GameScreen({ mode }: { mode: GameMode }) {
         </Link>
         <div className="min-w-0 flex-1">
           <p className="truncate text-sm font-extrabold">{label}</p>
-          <p className="text-xs font-bold text-ink/70">
-            {mode === "practice" ? "Just for practice" : `${done} of ${required.length} countries`}
-          </p>
+          {mode === "practice" || !run.continent ? (
+            <p className="text-xs font-bold text-ink/70">
+              {mode === "practice" ? "Just for practice" : "Pick a part of the world"}
+            </p>
+          ) : (
+            <button
+              type="button"
+              className="mt-1 grid w-full gap-1 text-left"
+              aria-label={`Change part of the world. ${BOARD_LABELS[run.continent]} ${hereDone} of ${here.length}. Whole world ${worldDone} of ${worldTotal}.`}
+              onClick={() => {
+                if (run.phase.kind === "continent" || run.phase.kind === "victory") return;
+                sfx.tap();
+                setRun((current) =>
+                  current
+                    ? askForContinent(current, "Which part of the world shall we do next?", "wave")
+                    : current,
+                );
+              }}
+            >
+              <Meter
+                label={BOARD_LABELS[run.continent]}
+                done={hereDone}
+                total={here.length}
+                fill={BOARD_COLORS[run.continent]}
+              />
+              <Meter label="Whole world" done={worldDone} total={worldTotal} fill="#f4d48a" />
+            </button>
+          )}
         </div>
         <div className="chunky flex h-11 items-center gap-1 bg-paper px-3 font-extrabold" aria-live="polite">
           <span className="text-coral" aria-hidden>
@@ -422,6 +527,7 @@ export function GameScreen({ mode }: { mode: GameMode }) {
         {showMap ? (
           <CountryMap
             board={mapBoard}
+            focus={run.phase.kind === "continent" ? null : run.continent}
             stamped={stamped}
             selected={selected}
             reveal={reveal}
@@ -437,11 +543,41 @@ export function GameScreen({ mode }: { mode: GameMode }) {
         ) : null}
       </div>
 
-      <section className="sheet safe-bottom px-3 pt-3 pb-4">
+      <section className="sheet safe-bottom max-h-[58dvh] overflow-y-auto px-3 pt-3 pb-4">
         <div className="flex items-end gap-2">
           <Lando mood={run.mood} className="h-24 w-20 shrink-0" />
           <Speech>{run.line}</Speech>
         </div>
+
+        {run.phase.kind === "continent" ? (
+          <div className="mt-3 grid gap-2">
+            <div className="chunky bg-paper px-3 py-2">
+              <Meter label="Whole world" done={worldDone} total={worldTotal} fill="#f4d48a" />
+            </div>
+            <div className="grid grid-cols-2 gap-2">
+              {CONTINENTS.map((id) => {
+                const roster = continentRoster(id);
+                const named = roster.filter((country) => run.stamped.includes(country.iso2)).length;
+                const complete = named === roster.length && roster.length > 0;
+                return (
+                  <button
+                    key={id}
+                    type="button"
+                    className="chunky min-h-16 px-3 py-2 text-left"
+                    style={{ background: BOARD_COLORS[id] }}
+                    onClick={() => {
+                      sfx.tap();
+                      setRun((current) => (current ? beginContinent(current, mode, id) : current));
+                    }}
+                  >
+                    <span className="block text-base font-extrabold">{BOARD_LABELS[id]}</span>
+                    <span className="block text-sm font-bold">{complete ? "All named" : `${named} of ${roster.length}`}</span>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        ) : null}
 
         {run.phase.kind === "feedback" && run.phase.tiles && run.phase.tiles.length > 0 ? (
           <div className="mt-3">
@@ -449,35 +585,23 @@ export function GameScreen({ mode }: { mode: GameMode }) {
           </div>
         ) : null}
 
+        {run.phase.kind === "choose" && run.phase.tiles && run.phase.tiles.length > 0 ? (
+          <div className="mt-3">
+            <LetterRow tiles={run.phase.tiles} />
+          </div>
+        ) : null}
+
         {run.phase.kind === "type" ? (
-          <>
-            <AnswerEntry
-              value={draft}
-              marks={marks}
-              inputRef={inputRef}
-              onChange={(value) => {
-                setDraft(value);
-                setMarks(null);
-              }}
-              onSubmit={() => submitGuess(draft)}
-            />
-            {marks?.some((tile) => tile.tone === "red") ? (
-              <button
-                type="button"
-                className="chunky mt-2 min-h-11 w-full bg-sand font-extrabold"
-                onClick={() => {
-                  if (run.phase.kind !== "type") return;
-                  const name = countryByIso.get(run.phase.iso)?.name ?? "that country";
-                  helped.current = false;
-                  onMiss(run.phase.iso, `The name is ${name}. ${STREAK_RESET}`, "skip", marks);
-                  setDraft("");
-                  setMarks(null);
-                }}
-              >
-                I don&apos;t know
-              </button>
-            ) : null}
-          </>
+          <AnswerEntry
+            value={draft}
+            marks={marks}
+            inputRef={inputRef}
+            onChange={(value) => {
+              setDraft(value);
+              setMarks(null);
+            }}
+            onSubmit={() => submitGuess(draft)}
+          />
         ) : null}
 
         {run.phase.kind === "feedback" && run.phase.tone === "bad" ? (
@@ -555,15 +679,21 @@ function nextQuestion(current: RunState, mode: GameMode, profile: Profile | null
     const prompt = promptFor(mode, "where", country);
     return { ...current, ...prompt, practiceKind: "where" };
   }
-  const iso = pickIso(requiredIsos(WORLD), current.stamped, phaseIso(current));
+  if (!current.continent) {
+    return askForContinent(current, "Which part of the world shall we start with?", "wave");
+  }
+  const iso = pickIso(
+    continentRoster(current.continent).map((country) => country.iso2),
+    current.stamped,
+    phaseIso(current),
+  );
   const country = iso ? countryByIso.get(iso) : null;
   if (!country) {
-    return {
-      ...current,
-      phase: { kind: "victory" },
-      mood: "celebrate",
-      line: "You named every country on the map!",
-    };
+    return askForContinent(
+      current,
+      `That's every country in ${BOARD_LABELS[current.continent]}. Which part shall we do next?`,
+      "celebrate",
+    );
   }
   const prompt = promptFor(mode, null, country);
   return { ...current, ...prompt, practiceKind: null };
@@ -577,9 +707,26 @@ function phaseIso(current: RunState) {
   return null;
 }
 
+function Meter({ label, done, total, fill }: { label: string; done: number; total: number; fill: string }) {
+  const width = total === 0 ? 0 : Math.min(100, Math.round((done / total) * 100));
+  return (
+    <span className="block min-w-0">
+      <span className="flex items-baseline justify-between gap-2 text-[11px] leading-tight font-extrabold">
+        <span className="truncate">{label}</span>
+        <span className="shrink-0 tabular-nums">
+          {done} of {total}
+        </span>
+      </span>
+      <span className="relative mt-0.5 block h-2.5 overflow-hidden rounded-full border-2 border-ink" style={{ background: fill }}>
+        <span className="absolute inset-y-0 right-0 bg-paper/70" style={{ width: `${100 - width}%` }} />
+      </span>
+    </span>
+  );
+}
+
 function afterFeedback(current: RunState, mode: GameMode, profile: Profile | null): RunState {
-  const required = requiredIsos(WORLD);
-  const finished = mode !== "practice" && required.length > 0 && required.every((iso) => current.stamped.includes(iso));
+  const finished =
+    mode !== "practice" && quizCountries.every((country) => current.stamped.includes(country.iso2));
   if (current.phase.kind === "feedback" && current.phase.tone === "good" && finished) {
     return {
       ...current,
@@ -587,6 +734,13 @@ function afterFeedback(current: RunState, mode: GameMode, profile: Profile | nul
       mood: "celebrate",
       line: `You named every country on the map! Your best streak is ${current.best}.`,
     };
+  }
+  if (current.continent && continentLeft(current.stamped, current.continent).length === 0) {
+    return askForContinent(
+      current,
+      `That's every country in ${BOARD_LABELS[current.continent]}. Which part shall we do next?`,
+      "celebrate",
+    );
   }
   if (mode === "name") {
     return {

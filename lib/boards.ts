@@ -1,4 +1,4 @@
-import type { BoardId } from "@/lib/countries";
+import { quizCountries, type BoardId } from "@/lib/countries";
 
 export type { BoardId };
 
@@ -62,6 +62,19 @@ export const BOARD_BOXES: Record<ContinentId, Box[]> = {
     { west: -180, east: -170, south: -50, north: 6 },
   ],
 };
+
+export const CONTINENT_ZOOM: Record<ContinentId, number> = {
+  africa: 1.65,
+  europe: 2.15,
+  asia: 1.35,
+  "north-america": 1.5,
+  "south-america": 1.8,
+  oceania: 1.9,
+};
+
+export function continentRoster(id: ContinentId) {
+  return quizCountries.filter((country) => country.primary === id);
+}
 
 export const BOARD_VIEWS: Record<BoardId, { center: [number, number]; scale: number }> = {
   world: { center: [12, 8], scale: 155 },

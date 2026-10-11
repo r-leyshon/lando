@@ -2,7 +2,7 @@
 
 import { useEffect, useLayoutEffect, useMemo, useRef, type PointerEvent as ReactPointerEvent } from "react";
 import { geoCentroid, geoOrthographic, geoPath } from "d3-geo";
-import { BOARD_COLORS, BOARD_VIEWS } from "@/lib/boards";
+import { BOARD_COLORS, BOARD_VIEWS, CONTINENT_ZOOM, type ContinentId } from "@/lib/boards";
 import { countryByIso, type BoardId } from "@/lib/countries";
 import { globeFeatures, globeSpinFeatures, type PieceProps } from "@/lib/map-model";
 
@@ -26,6 +26,7 @@ function globeRadius(size: { w: number; h: number }, zoom: number) {
 
 export function CountryMap({
   board,
+  focus = null,
   stamped,
   selected,
   reveal,
@@ -33,6 +34,7 @@ export function CountryMap({
   onPick,
 }: {
   board: BoardId;
+  focus?: ContinentId | null;
   stamped: ReadonlySet<string>;
   selected: string | null;
   reveal: string | null;
@@ -50,6 +52,7 @@ export function CountryMap({
   const gesturing = useRef(false);
   const raf = useRef(0);
   const zoomAnim = useRef(0);
+  const focusAnim = useRef(0);
   const wheelTimer = useRef(0);
   const sizeRef = useRef({ w: 360, h: 420 });
   const rotateRef = useRef<[number, number]>([-BOARD_VIEWS[board].center[0], -BOARD_VIEWS[board].center[1]]);
@@ -172,6 +175,7 @@ export function CountryMap({
 
   function animateZoom(target: number) {
     window.cancelAnimationFrame(zoomAnim.current);
+    window.cancelAnimationFrame(focusAnim.current);
     const from = zoomRef.current;
     const start = performance.now();
     gesturing.current = true;
@@ -190,6 +194,36 @@ export function CountryMap({
     rotateRef.current = [-BOARD_VIEWS[board].center[0], -BOARD_VIEWS[board].center[1]];
     zoomRef.current = 1;
   }, [board]);
+
+  useEffect(() => {
+    const view = BOARD_VIEWS[focus ?? board];
+    const zoomTo = focus ? CONTINENT_ZOOM[focus] : 1;
+    const targetLambda = -view.center[0];
+    const targetPhi = Math.max(-85, Math.min(85, -view.center[1]));
+    const fromLambda = rotateRef.current[0];
+    const fromPhi = rotateRef.current[1];
+    const fromZoom = zoomRef.current;
+    let dLambda = targetLambda - fromLambda;
+    while (dLambda > 180) dLambda -= 360;
+    while (dLambda < -180) dLambda += 360;
+    const dPhi = targetPhi - fromPhi;
+    const dZoom = zoomTo - fromZoom;
+    if (Math.abs(dLambda) < 0.5 && Math.abs(dPhi) < 0.5 && Math.abs(dZoom) < 0.02) return;
+    const start = performance.now();
+    gesturing.current = true;
+    const step = (now: number) => {
+      const t = Math.min(1, (now - start) / 680);
+      const eased = 1 - (1 - t) ** 3;
+      rotateRef.current = [fromLambda + dLambda * eased, Math.max(-85, Math.min(85, fromPhi + dPhi * eased))];
+      zoomRef.current = clampZoom(fromZoom + dZoom * eased);
+      paint();
+      if (t < 1) focusAnim.current = window.requestAnimationFrame(step);
+      else settle();
+    };
+    window.cancelAnimationFrame(focusAnim.current);
+    focusAnim.current = window.requestAnimationFrame(step);
+    return () => window.cancelAnimationFrame(focusAnim.current);
+  }, [board, focus]);
 
   useEffect(() => {
     const element = frame.current;
@@ -226,6 +260,7 @@ export function CountryMap({
     const onWheel = (event: WheelEvent) => {
       event.preventDefault();
       window.cancelAnimationFrame(zoomAnim.current);
+      window.cancelAnimationFrame(focusAnim.current);
       gesturing.current = true;
       zoomRef.current = clampZoom(zoomRef.current * Math.exp(-event.deltaY * 0.0015));
       schedulePaint();
@@ -262,6 +297,7 @@ export function CountryMap({
     press.current = Number.isInteger(index) ? (featuresRef.current[index]?.properties ?? null) : null;
     event.preventDefault();
     window.cancelAnimationFrame(zoomAnim.current);
+    window.cancelAnimationFrame(focusAnim.current);
     window.cancelAnimationFrame(raf.current);
     raf.current = 0;
     pointers.current.set(event.pointerId, { x: event.clientX, y: event.clientY });
