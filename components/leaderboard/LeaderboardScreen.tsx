@@ -116,7 +116,7 @@ export function LeaderboardScreen() {
         <h1 className="font-pixel text-sm">Scores</h1>
       </header>
       <div className="mt-4 flex items-end gap-2">
-        <Lando mood="wave" className="h-24 w-20" />
+        <Lando mood="wave" className="h-24 shrink-0" />
         <Speech>
           {database
             ? `Here are the longest streaks for ${MODE_LABELS[mode]}.`

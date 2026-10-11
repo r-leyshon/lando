@@ -1,5 +1,6 @@
 {
-  "frameHeight": 280,
+  "frameWidth": 295,
+  "frameHeight": 276,
   "animations": {
     "idle": { "sheet": "idle_sheet", "row": 0, "frames": 7, "fps": 7, "loop": true },
     "wave": { "sheet": "idle_sheet", "row": 1, "frames": 6, "fps": 8, "loop": true },

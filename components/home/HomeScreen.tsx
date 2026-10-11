@@ -43,7 +43,7 @@ export function HomeScreen() {
         >
           <p className="font-pixel text-center text-2xl text-ink">Lando</p>
           <div className="mt-4 flex items-end gap-3">
-            <Lando mood="wave" className="h-32 w-28" />
+            <Lando mood="wave" className="h-32 shrink-0" />
             <Speech>
               {showCode ? "Type the code you wrote down." : "I'm Lando. What should I call you?"}
             </Speech>
@@ -129,7 +129,7 @@ export function HomeScreen() {
 
       <div className="px-4 pt-3">
         <div className="flex items-end gap-2">
-          <Lando mood="wave" className="h-24 w-20" />
+          <Lando mood="wave" className="h-24 shrink-0" />
           <Speech>Pick the game you would like to play.</Speech>
         </div>
         <p className="mt-3 font-extrabold">

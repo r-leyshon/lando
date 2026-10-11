@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { LANDO_FRAMES, type LandoMood } from "@/lib/sprites";
+import { LANDO_FRAME_HEIGHT, LANDO_FRAME_WIDTH, LANDO_FRAMES, type LandoMood } from "@/lib/sprites";
 
 export function Lando({ mood, className = "" }: { mood: LandoMood; className?: string }) {
   const frames = LANDO_FRAMES[mood];
@@ -29,9 +29,9 @@ export function Lando({ mood, className = "" }: { mood: LandoMood; className?: s
     <img
       src={frames[reduce ? 0 : index]}
       alt=""
-      width={200}
-      height={280}
-      className={`pointer-events-none object-contain [image-rendering:pixelated] ${className}`}
+      width={LANDO_FRAME_WIDTH}
+      height={LANDO_FRAME_HEIGHT}
+      className={`pointer-events-none w-auto object-contain [image-rendering:pixelated] ${className}`}
     />
   );
 }

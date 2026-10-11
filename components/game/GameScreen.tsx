@@ -545,7 +545,7 @@ export function GameScreen({ mode }: { mode: GameMode }) {
 
       <section className="sheet safe-bottom max-h-[58dvh] overflow-y-auto px-3 pt-3 pb-4">
         <div className="flex items-end gap-2">
-          <Lando mood={run.mood} className="h-24 w-20 shrink-0" />
+          <Lando mood={run.mood} className="h-24 shrink-0" />
           <Speech>{run.line}</Speech>
         </div>
 
