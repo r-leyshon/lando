@@ -1,0 +1,10 @@
+{
+  "frameHeight": 280,
+  "animations": {
+    "idle": { "sheet": "idle_sheet", "row": 0, "frames": 7, "fps": 7, "loop": true },
+    "wave": { "sheet": "idle_sheet", "row": 1, "frames": 6, "fps": 8, "loop": true },
+    "think": { "sheet": "think_sheet", "row": 1, "frames": 6, "fps": 6, "loop": true },
+    "celebrate": { "sheet": "celebrate_sheet", "row": 0, "frames": 7, "fps": 8, "loop": true },
+    "oops": { "sheet": "oops_sheet", "row": 1, "frames": 6, "fps": 7, "loop": true }
+  }
+}

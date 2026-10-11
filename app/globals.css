@@ -1,26 +1,120 @@
 @import "tailwindcss";
 
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  color-scheme: light;
 }
 
 @theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
-}
-
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
+  --font-sans: var(--font-nunito), "Nunito", sans-serif;
+  --font-pixel: var(--font-pixel-face), monospace;
+  --color-sea: #79c3de;
+  --color-sea-deep: #2f7f9e;
+  --color-paper: #fff6e4;
+  --color-ink: #2a241b;
+  --color-sand: #f4d48a;
+  --color-stamp: #6fbf73;
+  --color-pick: #f08a3c;
+  --color-wood: #efc27a;
+  --color-coral: #e15b4c;
+  --color-leaf: #3f7d4e;
 }
 
 body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  margin: 0;
+  min-height: 100%;
+  background: #79c3de;
+  color: #2a241b;
+  font-family: var(--font-nunito), "Nunito", sans-serif;
+}
+
+button,
+a,
+input,
+select {
+  font: inherit;
+}
+
+.chunky {
+  border: 3px solid #2a241b;
+  border-radius: 14px;
+  box-shadow: 4px 4px 0 #2a241b;
+}
+
+.chunky:active {
+  transform: translate(2px, 2px);
+  box-shadow: 2px 2px 0 #2a241b;
+}
+
+.field {
+  min-height: 48px;
+  width: 100%;
+  border: 3px solid #2a241b;
+  border-radius: 12px;
+  background: white;
+  padding: 0.55rem 0.8rem;
+  font-size: 1.125rem;
+  font-weight: 800;
+}
+
+.tile {
+  min-width: 44px;
+  min-height: 48px;
+  border: 3px solid #2a241b;
+  border-radius: 10px;
+  background: #efc27a;
+  box-shadow: 3px 3px 0 #2a241b;
+  font-size: 1.25rem;
+  font-weight: 800;
+}
+
+.tile:active {
+  transform: translate(2px, 2px);
+  box-shadow: 1px 1px 0 #2a241b;
+}
+
+.sheet {
+  background: #fff6e4;
+  border-top: 3px solid #2a241b;
+}
+
+.safe-top {
+  padding-top: max(0.75rem, env(safe-area-inset-top));
+}
+
+.safe-bottom {
+  padding-bottom: max(0.75rem, env(safe-area-inset-bottom));
+}
+
+.land-shape {
+  cursor: pointer;
+}
+
+.land-shape:focus-visible {
+  stroke: #2a241b;
+  stroke-width: 3px;
+}
+
+.land-reveal {
+  animation: land-wink 0.7s ease-in-out 2;
+}
+
+@keyframes land-wink {
+  50% {
+    opacity: 0.45;
+  }
+}
+
+@media (hover: hover) {
+  .land-shape:hover {
+    filter: brightness(1.06);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .chunky:active,
+  .tile:active,
+  .land-reveal {
+    transform: none;
+    animation: none;
+  }
 }
