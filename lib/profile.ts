@@ -1,7 +1,7 @@
 import { countries, countryByIso, quizCountries, type Country } from "@/lib/countries";
 import { streakKey, type GameMode } from "@/lib/boards";
 
-export type Outcome = "correct" | "miss" | "near" | "skip";
+export type Outcome = "correct" | "miss" | "near" | "skip" | "hint";
 
 export type CountryStat = {
   correct: number;

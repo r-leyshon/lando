@@ -12,7 +12,7 @@ const GAMES: { mode: GameMode; detail: string }[] = [
   { mode: "name", detail: "Tap a country, then type its name." },
   { mode: "where", detail: "Lando says a country. You tap it on the map." },
   { mode: "silhouette", detail: "Look at the shape, then type the country's name." },
-  { mode: "practice", detail: "Try again at the countries you missed." },
+  { mode: "practice", detail: "Try again at the countries you found hard." },
 ];
 
 export function HomeScreen() {

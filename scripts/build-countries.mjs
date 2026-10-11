@@ -4,15 +4,20 @@ import atlas from "world-atlas/countries-50m.json" with { type: "json" };
 import worldCountries from "world-countries";
 
 const EXTRA_ALIASES = {
-  TR: ["Turkey"],
+  TR: ["Turkey", "Republic of Türkiye"],
+  GM: ["The Gambia"],
+  BS: ["The Bahamas"],
+  PH: ["The Philippines"],
+  SD: ["The Sudan"],
+  VA: ["Vatican", "The Vatican", "Holy See"],
   CZ: ["Czech Republic"],
-  GB: ["Britain"],
+  GB: ["Britain", "United Kingdom of Great Britain and Northern Ireland"],
   US: ["America"],
   NL: ["Holland"],
   KR: ["Korea"],
   KP: ["North Korea"],
   CD: ["DRC", "DR Congo", "Democratic Republic of the Congo", "Democratic Republic of Congo"],
-  CG: ["Congo", "Republic of the Congo"],
+  CG: ["Congo", "The Congo", "Republic of the Congo", "Republic of Congo"],
   MK: ["Macedonia"],
   SZ: ["Swaziland"],
   TL: ["East Timor"],
@@ -26,7 +31,6 @@ const EXTRA_ALIASES = {
   SY: ["Syria"],
   TZ: ["Tanzania"],
   MD: ["Moldova"],
-  VA: ["Vatican", "The Vatican"],
   RU: ["Russia"],
   FM: ["Micronesia"],
 };
@@ -68,7 +72,7 @@ function primaryBoard(country) {
 function latinAlias(value) {
   if (!value || /[^\u0000-\u024F\s'’.\-]/u.test(value)) return null;
   const cleaned = value.replace(/\s+/g, " ").trim();
-  if (cleaned.length < 2 || cleaned.length > 48) return null;
+  if (cleaned.length < 2 || cleaned.length > 60) return null;
   return cleaned;
 }
 

@@ -1,6 +1,6 @@
 import type { Country } from "@/lib/countries";
 
-export type LetterTile = { ch: string; tone: "yellow" | "green" | "red" | "gap" };
+export type LetterTile = { ch: string; tone: "yellow" | "green" | "red" | "gap" | "empty" };
 
 function namePieces(value: string) {
   const stripped = value.normalize("NFD").replace(/\p{M}/gu, "").replace(/['’]/g, "");
@@ -19,6 +19,37 @@ export function draftTiles(value: string): LetterTile[] {
     ch: piece.ch,
     tone: piece.key === " " ? "gap" : "yellow",
   }));
+}
+
+export function openHint(name: string, used: number, revealed: number[], random = Math.random) {
+  const pieces = namePieces(name);
+  const letterIndexes = pieces.flatMap((piece, index) => (piece.key === " " ? [] : [index]));
+  const next = [...revealed];
+  let added = 0;
+  if (used > 0) {
+    const want = used === 1 ? 1 : 2;
+    const pool = letterIndexes.filter((index) => !next.includes(index));
+    while (added < want && pool.length > 0) {
+      const pick = Math.min(pool.length - 1, Math.floor(random() * pool.length));
+      const [index] = pool.splice(pick, 1);
+      next.push(index);
+      added += 1;
+    }
+  }
+  const shown = new Set(next);
+  const tiles: LetterTile[] = pieces.map((piece, index) => {
+    if (piece.key === " ") return { ch: " ", tone: "gap" };
+    if (shown.has(index)) return { ch: piece.ch, tone: "green" };
+    return { ch: "", tone: "empty" };
+  });
+  return { revealed: next, tiles, letters: letterIndexes.length, added, line: hintLine(used, letterIndexes.length, added) };
+}
+
+function hintLine(used: number, letters: number, added: number) {
+  if (used <= 0) return `This name has ${letters} ${letters === 1 ? "letter" : "letters"}.`;
+  if (used === 1) return "Here is one letter in the right place.";
+  if (added <= 1) return "Here is one more letter.";
+  return "Here are two more letters.";
 }
 
 export function letterTiles(guess: string, target: string, allGreen = false): LetterTile[] {
@@ -112,6 +143,27 @@ function acceptedForms(country: Country) {
   return [normalizeName(country.name), ...country.aliases.map((alias) => normalizeName(alias))];
 }
 
+/** "The" at the start of a long name, and "of the" / "of", are the same answer. */
+function articleForms(value: string) {
+  const forms = new Set<string>();
+  const add = (form: string) => {
+    forms.add(form);
+    forms.add(form.replaceAll(" of the ", " of "));
+  };
+  add(value);
+  const rest = value.startsWith("the ") ? value.slice(4) : "";
+  if (rest.includes(" ")) add(rest);
+  return forms;
+}
+
+function namesMatch(guess: string, country: Country) {
+  const wanted = new Set(acceptedForms(country).flatMap((form) => [...articleForms(form)]));
+  for (const form of articleForms(guess)) {
+    if (wanted.has(form)) return true;
+  }
+  return false;
+}
+
 function titleCase(value: string) {
   return value.replace(/\b[a-z]/g, (letter) => letter.toUpperCase());
 }
@@ -131,15 +183,13 @@ export function judgeGuess(raw: string, country: Country, all: Country[]): Judge
   const guess = normalizeName(raw);
   if (!guess) return { kind: "wrong" };
 
-  if (acceptedForms(country).includes(guess)) return { kind: "correct" };
+  if (namesMatch(guess, country)) return { kind: "correct" };
 
   if (country.iso2 === "GB" && KINGDOM_PARTS[guess]) {
     return { kind: "mixup", message: KINGDOM_PARTS[guess] };
   }
 
-  const other = all.find(
-    (candidate) => candidate.iso2 !== country.iso2 && acceptedForms(candidate).includes(guess),
-  );
+  const other = all.find((candidate) => candidate.iso2 !== country.iso2 && namesMatch(guess, candidate));
   if (other) {
     return {
       kind: "mixup",

@@ -3,7 +3,7 @@ import { saveProgress } from "@/lib/db";
 import { cleanNickname, knownCountry, normalizeCode, type Outcome } from "@/lib/profile";
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
-const OUTCOMES: Outcome[] = ["correct", "miss", "near", "skip"];
+const OUTCOMES: Outcome[] = ["correct", "miss", "near", "skip", "hint"];
 
 export async function POST(request: Request) {
   const body = (await request.json().catch(() => null)) as {

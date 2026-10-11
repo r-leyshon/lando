@@ -13,7 +13,13 @@ export function LetterRow({ tiles }: { tiles: LetterTile[] }) {
           <span
             key={index}
             className={`grid h-12 min-w-11 place-items-center rounded-[10px] border-[3px] border-ink text-2xl font-extrabold uppercase shadow-[3px_3px_0_#2a241b] transition-colors duration-200 ${
-              tile.tone === "green" ? "bg-stamp text-ink" : tile.tone === "red" ? "bg-coral text-paper" : "bg-wood text-ink"
+              tile.tone === "green"
+                ? "bg-stamp text-ink"
+                : tile.tone === "red"
+                  ? "bg-coral text-paper"
+                  : tile.tone === "empty"
+                    ? "bg-paper text-ink"
+                    : "bg-wood text-ink"
             }`}
           >
             {tile.ch}

@@ -21,7 +21,7 @@ import {
 import { countryByIso, quizCountries, type BoardId, type Country } from "@/lib/countries";
 import { applyOutcome, pickTricky, type Outcome, type Profile } from "@/lib/profile";
 import { sfx } from "@/lib/sound";
-import { judgeGuess, letterTiles, spellingTarget, type LetterTile } from "@/lib/spelling";
+import { judgeGuess, letterTiles, openHint, spellingTarget, type LetterTile } from "@/lib/spelling";
 import { countries } from "@/lib/countries";
 import type { LandoMood } from "@/lib/sprites";
 
@@ -170,7 +170,7 @@ function createRun(mode: GameMode, profile: Profile | null): RunState {
         ...shell,
         continent: null,
         phase: { kind: "empty" },
-        line: "Play another game first. I'll remember the countries you miss.",
+        line: "Play another game first. I'll remember the countries you found hard.",
         mood: "think",
       };
     }
@@ -209,6 +209,11 @@ export function GameScreen({ mode }: { mode: GameMode }) {
   const [run, setRun] = useState<RunState | null>(null);
   const [draft, setDraft] = useState("");
   const [marks, setMarks] = useState<LetterTile[] | null>(null);
+  const [hint, setHint] = useState<{ used: number; revealed: number[]; tiles: LetterTile[] }>({
+    used: 0,
+    revealed: [],
+    tiles: [],
+  });
   const tries = useRef(0);
   const [confirmReset, setConfirmReset] = useState(false);
   const profileRef = useRef(profile);
@@ -248,6 +253,7 @@ export function GameScreen({ mode }: { mode: GameMode }) {
     tries.current = 0;
     setDraft("");
     setMarks(null);
+    setHint({ used: 0, revealed: [], tiles: [] });
   }, [answerKey]);
 
   useEffect(() => {
@@ -342,6 +348,25 @@ export function GameScreen({ mode }: { mode: GameMode }) {
           }
         : current,
     );
+  }
+
+  function focusAnswer() {
+    const field = inputRef.current;
+    if (!field) return;
+    field.focus();
+    field.scrollIntoView({ block: "nearest" });
+  }
+
+  function askHint() {
+    if (!run || run.phase.kind !== "type" || hint.used >= 3) return;
+    const country = countryByIso.get(run.phase.iso);
+    if (!country) return;
+    const next = openHint(country.name, hint.used, hint.revealed);
+    setHint({ used: hint.used + 1, revealed: next.revealed, tiles: next.tiles });
+    record(run.phase.iso, "hint", run.streak, false);
+    sfx.tap();
+    setRun((current) => (current ? { ...current, line: next.line, mood: "think" } : current));
+    focusAnswer();
   }
 
   function submitGuess(raw: string) {
@@ -592,16 +617,39 @@ export function GameScreen({ mode }: { mode: GameMode }) {
         ) : null}
 
         {run.phase.kind === "type" ? (
-          <AnswerEntry
-            value={draft}
-            marks={marks}
-            inputRef={inputRef}
-            onChange={(value) => {
-              setDraft(value);
-              setMarks(null);
-            }}
-            onSubmit={() => submitGuess(draft)}
-          />
+          <>
+            {hint.tiles.length > 0 ? (
+              <div
+                className="mt-3 cursor-text"
+                aria-label={run.line}
+                onMouseDown={(event) => {
+                  event.preventDefault();
+                  focusAnswer();
+                }}
+              >
+                <LetterRow tiles={hint.tiles} />
+              </div>
+            ) : null}
+            <AnswerEntry
+              value={draft}
+              marks={marks}
+              inputRef={inputRef}
+              onChange={(value) => {
+                setDraft(value);
+                setMarks(null);
+              }}
+              onSubmit={() => submitGuess(draft)}
+            />
+            <button
+              type="button"
+              className="chunky mt-2 min-h-12 w-full bg-sand font-extrabold disabled:opacity-50"
+              disabled={hint.used >= 3}
+              onMouseDown={(event) => event.preventDefault()}
+              onClick={askHint}
+            >
+              {hint.used === 0 ? "Ask for a hint" : hint.used === 1 ? "Another hint" : hint.used === 2 ? "Last hint" : "That's all the hints"}
+            </button>
+          </>
         ) : null}
 
         {run.phase.kind === "feedback" && run.phase.tone === "bad" ? (
