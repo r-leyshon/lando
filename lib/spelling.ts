@@ -140,7 +140,7 @@ export function judgeGuess(raw: string, country: Country, all: Country[]): Judge
   if (other) {
     return {
       kind: "mixup",
-      message: `That's ${other.name}. This one is ${country.name}.`,
+      message: `That's ${other.name}. This country is ${country.name}.`,
     };
   }
 
@@ -148,7 +148,7 @@ export function judgeGuess(raw: string, country: Country, all: Country[]): Judge
   if (guess.length >= 4 && official.startsWith(`${guess} `)) {
     const prefixed = all.filter((candidate) => normalizeName(candidate.name).startsWith(`${guess} `));
     if (prefixed.length > 1) {
-      return { kind: "hint", message: "A few countries start that way. Type the whole name." };
+      return { kind: "hint", message: "A few countries start like that. Type the whole name." };
     }
     return { kind: "near", form: official, display: country.name };
   }

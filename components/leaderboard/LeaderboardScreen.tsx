@@ -119,8 +119,8 @@ export function LeaderboardScreen() {
         <Lando mood="wave" className="h-24 w-20" />
         <Speech>
           {database
-            ? `Longest streaks in ${MODE_LABELS[mode]}.`
-            : `Streaks for ${MODE_LABELS[mode]} saved on this phone. Cloud scores appear when a database is connected.`}
+            ? `Here are the longest streaks for ${MODE_LABELS[mode]}.`
+            : `This is your best streak for ${MODE_LABELS[mode]} on this phone.`}
         </Speech>
       </div>
       <div className="mt-4">
@@ -128,7 +128,7 @@ export function LeaderboardScreen() {
       </div>
       <ol className="mt-4 grid gap-2">
         {database && entries.length === 0 ? (
-          <li className="chunky bg-paper px-4 py-3 font-extrabold">Be the first name on this scoreboard.</li>
+          <li className="chunky bg-paper px-4 py-3 font-extrabold">Nobody is on this list yet. You could be first!</li>
         ) : null}
         {database
           ? entries.map((entry, index) => (

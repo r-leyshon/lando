@@ -45,12 +45,12 @@ const PLACE_NOTES = {
   "Hong Kong": "Hong Kong is part of China.",
   Macao: "Macao is part of China.",
   "Puerto Rico": "Puerto Rico is part of the United States.",
-  "W. Sahara": "Western Sahara is a disputed territory, so it is not in the quiz.",
+  "W. Sahara": "Western Sahara is not one of the countries in this game.",
   Kosovo: "Kosovo is one of the countries you can name.",
-  Somaliland: "Somaliland is not a separate country in this game.",
-  "N. Cyprus": "This place is not a separate country in this game.",
-  "Indian Ocean Ter.": "This is a territory, not one of the countries in the quiz.",
-  "Siachen Glacier": "This place is not a country in the quiz.",
+  Somaliland: "Somaliland is not one of the countries in this game.",
+  "N. Cyprus": "This place is not one of the countries in this game.",
+  "Indian Ocean Ter.": "This place is not one of the countries in this game.",
+  "Siachen Glacier": "This place is not one of the countries in this game.",
 };
 
 function primaryBoard(country) {
@@ -186,7 +186,7 @@ for (const geometry of geometries) {
   places.push({
     numeric,
     neName,
-    note: PLACE_NOTES[neName] ?? "This place is not a separate country in the quiz.",
+    note: PLACE_NOTES[neName] ?? "This place is not one of the countries in this game.",
   });
 }
 

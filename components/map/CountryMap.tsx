@@ -237,9 +237,9 @@ export function CountryMap({
   }, [board]);
 
   function label(props: PieceProps) {
-    if (!props.interactive) return props.note ?? "Territory";
-    if (colorMode === "hub") return `${props.name ?? "Country"}, open its board`;
-    if (props.iso2 && stamped.has(props.iso2)) return props.name ?? "Stamped country";
+    if (!props.interactive) return props.note ?? "This place is not one of the countries in this game.";
+    if (colorMode === "hub") return props.name ?? "Country";
+    if (props.iso2 && stamped.has(props.iso2)) return props.name ?? "A country you already named";
     return "Unknown country";
   }
 

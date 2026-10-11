@@ -6,13 +6,13 @@ import { Lando, Speech } from "@/components/lando/Lando";
 import { formatCode, rememberPlayer, usePlayer } from "@/components/player/PlayerProvider";
 import { MODE_LABELS, type GameMode } from "@/lib/boards";
 import { quizCountries } from "@/lib/countries";
-import { bestStreak, cleanNickname, passportCount, topStruggle } from "@/lib/profile";
+import { bestStreak, cleanNickname, passportCount } from "@/lib/profile";
 
 const GAMES: { mode: GameMode; detail: string }[] = [
-  { mode: "name", detail: "Tap a country on the world map, then spell its name." },
-  { mode: "where", detail: "Lando names a country. You find it on the world map." },
-  { mode: "silhouette", detail: "Only the outline. No neighbours." },
-  { mode: "practice", detail: "Find the countries that caught you out." },
+  { mode: "name", detail: "Tap a country, then type its name." },
+  { mode: "where", detail: "Lando says a country. You tap it on the map." },
+  { mode: "silhouette", detail: "Look at the shape, then type the country's name." },
+  { mode: "practice", detail: "Try again at the countries you missed." },
 ];
 
 export function HomeScreen() {
@@ -35,7 +35,7 @@ export function HomeScreen() {
             if (showCode) return;
             const cleaned = cleanNickname(nickname);
             if (!cleaned) {
-              setError("Use 2 to 16 letters for your name.");
+              setError("Use 2 to 16 letters in your name.");
               return;
             }
             setProfile(rememberPlayer(cleaned));
@@ -45,9 +45,7 @@ export function HomeScreen() {
           <div className="mt-4 flex items-end gap-3">
             <Lando mood="wave" className="h-32 w-28" />
             <Speech>
-              {showCode
-                ? "Type the code from your other device."
-                : "I'm Lando. What should I call you?"}
+              {showCode ? "Type the code you wrote down." : "I'm Lando. What should I call you?"}
             </Speech>
           </div>
           {showCode ? (
@@ -105,7 +103,6 @@ export function HomeScreen() {
     );
   }
 
-  const tricky = topStruggle(profile);
   const stamps = passportCount(profile);
 
   return (
@@ -132,15 +129,11 @@ export function HomeScreen() {
 
       <div className="px-4 pt-3">
         <div className="flex items-end gap-2">
-          <Lando mood={tricky ? "think" : "wave"} className="h-24 w-20" />
-          <Speech>
-            {tricky
-              ? `${tricky.name} is still a tricky one. Pick a game. Each one keeps its own streak.`
-              : "Pick a game. Each one keeps its own streak."}
-          </Speech>
+          <Lando mood="wave" className="h-24 w-20" />
+          <Speech>Pick the game you would like to play.</Speech>
         </div>
         <p className="mt-3 font-extrabold">
-          Passport {stamps} of {quizCountries.length}
+          Stamps {stamps} of {quizCountries.length}
         </p>
       </div>
 
@@ -161,7 +154,7 @@ export function HomeScreen() {
           <div className="chunky w-full max-w-sm bg-paper p-5">
             <h2 className="font-pixel text-sm">Your Lando code</h2>
             <p className="mt-3 text-lg font-extrabold">
-              Write this down. It brings your stamps back on another device once scores are saved in the cloud.
+              Write this code down. You can use it to get your stamps back on another phone or computer.
             </p>
             <p className="mt-3 text-center text-3xl font-extrabold tracking-[0.25em]">{formatCode(profile.recoveryCode)}</p>
             <button
@@ -169,7 +162,7 @@ export function HomeScreen() {
               className="chunky mt-4 min-h-12 w-full bg-pick font-extrabold"
               onClick={() => setProfile({ ...profile, seenCode: true })}
             >
-              I&apos;ve saved it
+              I&apos;ve written it down
             </button>
           </div>
         </div>

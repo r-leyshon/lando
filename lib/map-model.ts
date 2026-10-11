@@ -107,7 +107,7 @@ function build() {
             polygonFeature(polygon, `${board}-part-${id}`, {
               iso2: null,
               name: null,
-              note: `${country.name} looks after this place. It is not a separate country in the quiz.`,
+              note: `This place belongs to ${country.name}. It is not its own country in the game.`,
               interactive: false,
               small: false,
             }),

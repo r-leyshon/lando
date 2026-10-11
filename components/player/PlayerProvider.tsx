@@ -82,7 +82,7 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
 
   async function restore(code: string) {
     const normalized = normalizeCode(code);
-    if (!/^[A-Z0-9]{6}$/.test(normalized)) return "Codes look like this: ABC-123.";
+    if (!/^[A-Z0-9]{6}$/.test(normalized)) return "A Lando code looks like ABC-123.";
     const local = loadProfile();
     if (local && local.recoveryCode === normalized) {
       setProfile({ ...local, seenCode: true });
@@ -97,7 +97,7 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
       const payload = (await response.json()) as Profile & { error?: string; database?: boolean };
       if (!response.ok) {
         if (payload.database === false) {
-          return "That code is not on this phone. A grown-up can connect the score database to move saves between devices.";
+          return "That code is not on this phone.";
         }
         return payload.error ?? "Lando could not find that code.";
       }
@@ -113,7 +113,7 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
       setProfile(restored);
       return null;
     } catch {
-      return "Lando could not reach the score book just now.";
+      return "Lando could not check that code just now.";
     }
   }
 

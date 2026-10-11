@@ -11,7 +11,7 @@ import { usePlayer } from "@/components/player/PlayerProvider";
 import { MODE_LABELS, type GameMode } from "@/lib/boards";
 import { countryByIso, type BoardId, type Country } from "@/lib/countries";
 import { requiredIsos } from "@/lib/map-model";
-import { applyOutcome, pickTricky, topStruggle, type Outcome, type Profile } from "@/lib/profile";
+import { applyOutcome, pickTricky, type Outcome, type Profile } from "@/lib/profile";
 import { sfx } from "@/lib/sound";
 import { judgeGuess } from "@/lib/spelling";
 import { countries } from "@/lib/countries";
@@ -54,9 +54,11 @@ function pickIso(isos: string[], stamped: string[], avoid: string | null) {
   return choice[Math.floor(Math.random() * choice.length)] ?? null;
 }
 
+const STREAK_RESET = "Your streak starts again. The green countries stay.";
+
 function successLine(name: string, streak: number) {
-  if (streak === 1) return `${name}! The streak starts now.`;
-  if (streak % 5 === 0) return `${streak} in a row! You stamped ${name}.`;
+  if (streak === 1) return `${name}! That's the first one.`;
+  if (streak % 5 === 0) return `${streak} in a row! ${name} gets a stamp.`;
   return `${name}! That's ${streak} in a row.`;
 }
 
@@ -83,10 +85,7 @@ function promptFor(
   if (mode === "silhouette" || practiceKind === "silhouette") {
     return {
       phase: { kind: "type", iso: country.iso2 },
-      line:
-        practiceKind === "silhouette"
-          ? "You found this shape tricky. What country is it?"
-          : "Who is this outline?",
+      line: "What country is this shape?",
       mood: "think",
     };
   }
@@ -99,7 +98,7 @@ function promptFor(
   }
   return {
     phase: { kind: "type", iso: country.iso2 },
-    line: "What's this one called?",
+    line: "What is this country called?",
     mood: "think",
   };
 }
@@ -114,7 +113,7 @@ function createRun(mode: GameMode, profile: Profile | null): RunState {
     return {
       ...base,
       phase: { kind: "victory" },
-      line: "You stamped every country on the world map.",
+      line: "You named every country on the map!",
       mood: "celebrate",
       practiceKind: null,
     };
@@ -126,7 +125,7 @@ function createRun(mode: GameMode, profile: Profile | null): RunState {
       return {
         ...base,
         phase: { kind: "empty" },
-        line: "Play a few countries first. I'll remember the ones that wobble.",
+        line: "Play another game first. I'll remember the countries you miss.",
         mood: "think",
         practiceKind: null,
       };
@@ -136,15 +135,12 @@ function createRun(mode: GameMode, profile: Profile | null): RunState {
   }
 
   if (mode === "name") {
-    const tricky = profile ? topStruggle(profile, requiredIsos(WORLD)) : null;
     return {
       ...base,
       phase: { kind: "choose" },
       mood: "wave",
       practiceKind: null,
-      line: tricky
-        ? `${tricky.name} was a tricky one last time. Tap a country, then type its name.`
-        : "Tap a country, then type its English name.",
+      line: "Tap a country, then type its name.",
     };
   }
 
@@ -155,7 +151,7 @@ function createRun(mode: GameMode, profile: Profile | null): RunState {
       return {
         ...base,
         phase: { kind: "victory" },
-        line: "You stamped every country on the world map.",
+        line: "You named every country on the map!",
         mood: "celebrate",
         practiceKind: null,
       };
@@ -321,7 +317,7 @@ export function GameScreen({ mode }: { mode: GameMode }) {
           ? {
               ...current,
               phase: { kind: "spell", iso, guess: raw, form: result.form, display: result.display },
-              line: "Nearly! The red letters need a fix. Tap the tiles in order.",
+              line: "Nearly! The red letters are wrong. Tap the letters in the right order.",
               mood: "think",
             }
           : current,
@@ -329,10 +325,10 @@ export function GameScreen({ mode }: { mode: GameMode }) {
       return;
     }
     if (result.kind === "mixup") {
-      onMiss(iso, `${result.message} Streak back to zero. Your stamps stay.`);
+      onMiss(iso, `${result.message} ${STREAK_RESET}`);
       return;
     }
-    onMiss(iso, `The name is ${country.name}. Streak back to zero. Your stamps stay.`);
+    onMiss(iso, `The name is ${country.name}. ${STREAK_RESET}`);
   }
 
   function onPick(hit: { iso2: string } | { note: string }) {
@@ -348,9 +344,10 @@ export function GameScreen({ mode }: { mode: GameMode }) {
       else {
         const tapped = countryByIso.get(hit.iso2);
         const wanted = countryByIso.get(run.phase.iso);
+        const wantedName = wanted?.name ?? "another country";
         const line = tapped
-          ? `That's ${tapped.name}. This one is ${wanted?.name ?? "the highlighted country"}. Streak back to zero.`
-          : `Not that one. This is ${wanted?.name ?? "the highlighted country"}. Streak back to zero.`;
+          ? `That's ${tapped.name}. Lando asked for ${wantedName}. ${STREAK_RESET}`
+          : `Not that one. Lando asked for ${wantedName}. ${STREAK_RESET}`;
         onMiss(run.phase.iso, line);
       }
       return;
@@ -358,7 +355,7 @@ export function GameScreen({ mode }: { mode: GameMode }) {
     if (run.stamped.includes(hit.iso2)) {
       const name = countryByIso.get(hit.iso2)?.name ?? "That country";
       setRun((current) =>
-        current ? { ...current, line: `${name} is already stamped. Try another.`, mood: "wave" } : current,
+        current ? { ...current, line: `You already named ${name}. Try another country.`, mood: "wave" } : current,
       );
       return;
     }
@@ -383,7 +380,7 @@ export function GameScreen({ mode }: { mode: GameMode }) {
         <div className="min-w-0 flex-1">
           <p className="truncate text-sm font-extrabold">{label}</p>
           <p className="text-xs font-bold text-ink/70">
-            {mode === "practice" ? "Your own streak" : `${done}/${required.length} on the world map`}
+            {mode === "practice" ? "Just for practice" : `${done} of ${required.length} countries`}
           </p>
         </div>
         <div className="chunky flex h-11 items-center gap-1 bg-paper px-3 font-extrabold" aria-live="polite">
@@ -469,7 +466,7 @@ export function GameScreen({ mode }: { mode: GameMode }) {
               onSkip={() => {
                 if (run.phase.kind !== "spell") return;
                 const name = countryByIso.get(run.phase.iso)?.name ?? "that country";
-                onMiss(run.phase.iso, `We'll keep ${name} in the notebook. Streak back to zero.`, "skip");
+                onMiss(run.phase.iso, `We'll remember ${name} for next time. Your streak starts again.`, "skip");
               }}
             />
           </div>
@@ -487,7 +484,7 @@ export function GameScreen({ mode }: { mode: GameMode }) {
 
         {run.phase.kind === "victory" ? (
           <div className="mt-3 grid gap-2">
-            <p className="text-center font-extrabold">Best streak this expedition: {run.best}</p>
+            <p className="text-center font-extrabold">Your best streak this game: {run.best}</p>
             <button type="button" className="chunky min-h-12 bg-pick font-extrabold" onClick={() => resetRun()}>
               Play again
             </button>
@@ -511,7 +508,7 @@ export function GameScreen({ mode }: { mode: GameMode }) {
             {confirmReset ? (
               <span className="flex gap-2">
                 <button type="button" className="underline" onClick={() => resetRun()}>
-                  Yes, start fresh
+                  Yes, start again
                 </button>
                 <button type="button" className="underline" onClick={() => setConfirmReset(false)}>
                   Keep going
@@ -544,7 +541,7 @@ function nextQuestion(current: RunState, mode: GameMode, profile: Profile | null
         phase: { kind: "empty" },
         practiceKind: null,
         mood: "celebrate",
-        line: "Those tricky ones are looking better. Pick another game if you want a new challenge.",
+        line: "Those hard ones are getting easier. Pick another game when you like.",
       };
     }
     const prompt = promptFor(mode, "where", country);
@@ -557,7 +554,7 @@ function nextQuestion(current: RunState, mode: GameMode, profile: Profile | null
       ...current,
       phase: { kind: "victory" },
       mood: "celebrate",
-      line: "You stamped every country on the world map.",
+      line: "You named every country on the map!",
     };
   }
   const prompt = promptFor(mode, null, country);
@@ -580,7 +577,7 @@ function afterFeedback(current: RunState, mode: GameMode, profile: Profile | nul
       ...current,
       phase: { kind: "victory" },
       mood: "celebrate",
-      line: `You stamped every country on the world map. Best streak: ${current.best}.`,
+      line: `You named every country on the map! Your best streak is ${current.best}.`,
     };
   }
   if (mode === "name") {
@@ -589,7 +586,7 @@ function afterFeedback(current: RunState, mode: GameMode, profile: Profile | nul
       phase: { kind: "choose" },
       mood: "idle",
       practiceKind: null,
-      line: current.phase.kind === "feedback" && current.phase.tone === "good" ? "Tap another country." : "Tap a country when you're ready.",
+      line: current.phase.kind === "feedback" && current.phase.tone === "good" ? "Tap another country." : "Tap a country when you are ready.",
     };
   }
   return nextQuestion(current, mode, profile);
