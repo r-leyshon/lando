@@ -1,8 +1,9 @@
 import { feature } from "topojson-client";
 import { geoArea, geoCentroid } from "d3-geo";
-import type { Feature, Polygon } from "geojson";
+import type { Feature, MultiPolygon, Polygon } from "geojson";
 import type { GeometryCollection, Topology } from "topojson-specification";
 import atlas from "world-atlas/countries-50m.json";
+import atlasCoarse from "world-atlas/countries-110m.json";
 import { BOARD_BOXES, CONTINENTS, type ContinentId } from "@/lib/boards";
 import { countries, countryByIso, places, type BoardId, type Country } from "@/lib/countries";
 
@@ -15,11 +16,14 @@ export type PieceProps = {
 };
 
 export type LandFeature = Feature<Polygon, PieceProps>;
+export type GlobeFeature = Feature<Polygon | MultiPolygon, PieceProps>;
 
 type Atlas = Topology<{ countries: GeometryCollection }>;
 
 const topology = atlas as unknown as Atlas;
 const source = feature(topology, topology.objects.countries);
+const coarseTopology = atlasCoarse as unknown as Atlas;
+const coarse = feature(coarseTopology, coarseTopology.objects.countries);
 
 function asPolygons(geometry: Feature["geometry"]): Polygon[] {
   if (!geometry) return [];
@@ -148,6 +152,97 @@ const pieces = build();
 
 export function boardPieces(board: BoardId) {
   return pieces[board];
+}
+
+export function globeFeatures(board: BoardId): GlobeFeature[] {
+  const grouped = new Map<string, { props: PieceProps; coordinates: Polygon["coordinates"][] }>();
+  for (const piece of pieces[board]) {
+    const key = piece.properties.iso2 ?? `place:${piece.properties.note ?? piece.properties.name ?? "land"}`;
+    const group = grouped.get(key) ?? { props: piece.properties, coordinates: [] };
+    group.coordinates.push(piece.geometry.coordinates);
+    grouped.set(key, group);
+  }
+  return [...grouped.values()].map((group, index) => ({
+    type: "Feature" as const,
+    id: group.props.iso2 ?? `place-${index}`,
+    properties: group.props,
+    geometry:
+      group.coordinates.length === 1
+        ? { type: "Polygon" as const, coordinates: group.coordinates[0] }
+        : { type: "MultiPolygon" as const, coordinates: group.coordinates },
+  }));
+}
+
+function featureKey(props: PieceProps) {
+  return props.iso2 ?? `place:${props.note ?? props.name ?? "land"}`;
+}
+
+export function globeSpinFeatures(board: BoardId): GlobeFeature[] {
+  const detail = globeFeatures(board);
+  if (board !== "world") return detail;
+  const fast: GlobeFeature[] = [];
+  const seen = new Set<string>();
+  const claimed = new Set<number>();
+
+  coarse.features.forEach((shape, index) => {
+    if (!shape.geometry || (shape.geometry.type !== "Polygon" && shape.geometry.type !== "MultiPolygon")) return;
+    const numeric = shape.id == null ? null : String(Number(shape.id));
+    const name = (shape.properties as { name?: string } | null)?.name ?? null;
+    const country = countries.find(
+      (item) => (item.numeric != null && item.numeric === numeric) || (item.numeric == null && name === item.neName),
+    );
+    if (!country) return;
+    claimed.add(index);
+    const key = country.iso2;
+    if (seen.has(key)) return;
+    seen.add(key);
+    fast.push({
+      type: "Feature",
+      id: key,
+      properties: {
+        iso2: country.iso2,
+        name: country.name,
+        note: null,
+        interactive: true,
+        small: country.small,
+      },
+      geometry: shape.geometry,
+    });
+  });
+
+  coarse.features.forEach((shape, index) => {
+    if (claimed.has(index) || !shape.geometry) return;
+    if (shape.geometry.type !== "Polygon" && shape.geometry.type !== "MultiPolygon") return;
+    const numeric = shape.id == null ? null : String(Number(shape.id));
+    const name = (shape.properties as { name?: string } | null)?.name ?? null;
+    const place = places.find(
+      (item) => (item.numeric != null && item.numeric === numeric) || (item.numeric == null && name === item.neName),
+    );
+    if (!place) return;
+    const key = `place:${place.note}`;
+    if (seen.has(key)) return;
+    seen.add(key);
+    fast.push({
+      type: "Feature",
+      id: key,
+      properties: {
+        iso2: null,
+        name: place.neName,
+        note: place.note,
+        interactive: false,
+        small: false,
+      },
+      geometry: shape.geometry,
+    });
+  });
+
+  for (const item of detail) {
+    const key = featureKey(item.properties);
+    if (seen.has(key)) continue;
+    seen.add(key);
+    fast.push(item);
+  }
+  return fast;
 }
 
 export function requiredIsos(board: BoardId) {
