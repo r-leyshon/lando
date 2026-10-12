@@ -1,10 +1,12 @@
 "use client";
 
 import { useEffect, useLayoutEffect, useMemo, useRef, type PointerEvent as ReactPointerEvent } from "react";
-import { geoCentroid, geoOrthographic, geoPath } from "d3-geo";
+import { geoArea, geoCentroid, geoOrthographic, geoPath, type GeoProjection } from "d3-geo";
+import type { Feature, Polygon } from "geojson";
 import { BOARD_COLORS, BOARD_VIEWS, CONTINENT_ZOOM, type ContinentId } from "@/lib/boards";
 import { countryByIso, type BoardId } from "@/lib/countries";
-import { globeFeatures, globeSpinFeatures, type PieceProps } from "@/lib/map-model";
+import { globeFeatures, globeSpinFeatures, type GlobeFeature, type PieceProps } from "@/lib/map-model";
+import { readyFlag } from "@/components/map/flags";
 
 type Hit = { iso2: string } | { note: string };
 type Point = { x: number; y: number };
@@ -22,6 +24,41 @@ function featureKey(props: PieceProps) {
 
 function globeRadius(size: { w: number; h: number }, zoom: number) {
   return Math.min(size.w, size.h) * 0.46 * zoom;
+}
+
+const flagAnchors = new WeakMap<GlobeFeature, [number, number] | null>();
+
+function polygonsOf(feature: GlobeFeature): Polygon[] {
+  if (feature.geometry.type === "Polygon") return [feature.geometry];
+  return feature.geometry.coordinates.map((coordinates) => ({ type: "Polygon", coordinates }));
+}
+
+function flagAnchor(feature: GlobeFeature) {
+  if (flagAnchors.has(feature)) return flagAnchors.get(feature) ?? null;
+  let best: Feature<Polygon> | null = null;
+  let bestArea = 0;
+  for (const polygon of polygonsOf(feature)) {
+    const shape: Feature<Polygon> = { type: "Feature", properties: {}, geometry: polygon };
+    const area = geoArea(shape);
+    if (area > bestArea) {
+      best = shape;
+      bestArea = area;
+    }
+  }
+  if (!best) {
+    flagAnchors.set(feature, null);
+    return null;
+  }
+  const center = geoCentroid(best);
+  const anchor =
+    Number.isFinite(center[0]) && Number.isFinite(center[1]) ? ([center[0], center[1]] as [number, number]) : null;
+  flagAnchors.set(feature, anchor);
+  return anchor;
+}
+
+function spriteSize(zoom: number) {
+  const width = Math.min(44, Math.max(20, 18 * Math.sqrt(zoom)));
+  return { width, height: width * 0.75 };
 }
 
 export function CountryMap({
@@ -117,14 +154,46 @@ export function CountryMap({
     context.strokeStyle = "#2a241b";
     context.stroke();
     for (const feature of mesh) {
+      const hot =
+        feature.properties.iso2 != null &&
+        (feature.properties.iso2 === styleRef.current.selected || feature.properties.iso2 === styleRef.current.reveal);
       context.beginPath();
       path(feature);
       context.fillStyle = landColor(feature.properties);
       context.fill();
-      const hot = feature.properties.iso2 != null && (feature.properties.iso2 === styleRef.current.selected || feature.properties.iso2 === styleRef.current.reveal);
       context.lineWidth = hot ? 1.6 : 0.45;
       context.strokeStyle = "#2a241b";
       context.stroke();
+    }
+    context.save();
+    context.beginPath();
+    path({ type: "Sphere" });
+    context.clip();
+    drawFlagSprites(context, projection);
+    context.restore();
+  }
+
+  function drawFlagSprites(context: CanvasRenderingContext2D, projection: GeoProjection) {
+    const style = styleRef.current;
+    if (style.colorMode === "hub" || style.stamped.size === 0) return;
+    const mesh = gesturing.current ? spinRef.current : featuresRef.current;
+    const { width, height } = spriteSize(zoomRef.current);
+    for (const feature of mesh) {
+      const iso = feature.properties.iso2;
+      if (!iso || !style.stamped.has(iso)) continue;
+      const image = readyFlag(iso, schedulePaint);
+      const anchor = flagAnchor(feature);
+      if (!image || !anchor) continue;
+      const point = projection(anchor);
+      if (!point) continue;
+      const x = point[0] - width / 2;
+      const y = point[1] - height / 2;
+      context.fillStyle = "#ffffff";
+      context.fillRect(x, y, width, height);
+      context.drawImage(image.source, x, y, width, height);
+      context.lineWidth = 1.5;
+      context.strokeStyle = "#2a241b";
+      context.strokeRect(x, y, width, height);
     }
   }
 
