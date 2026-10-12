@@ -15,7 +15,7 @@ export type ContinentId = (typeof CONTINENTS)[number];
 
 export const PLAY_BOARDS = [...CONTINENTS, "world"] as const satisfies readonly BoardId[];
 
-export const MODES = ["name", "where", "silhouette", "practice"] as const;
+export const MODES = ["name", "where", "silhouette", "flag", "practice"] as const;
 export type GameMode = (typeof MODES)[number];
 
 export const BOARD_LABELS: Record<BoardId | "tricky", string> = {
@@ -43,6 +43,7 @@ export const MODE_LABELS: Record<GameMode, string> = {
   name: "Name the country",
   where: "Where is…",
   silhouette: "Name that country",
+  flag: "Guess the flag",
   practice: "Tricky ones",
 };
 

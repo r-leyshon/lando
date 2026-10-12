@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import { CountryMap } from "@/components/map/CountryMap";
+import { FlagPrompt } from "@/components/game/FlagPrompt";
 import { Silhouette } from "@/components/map/Silhouette";
 import { Lando, Speech } from "@/components/lando/Lando";
 import { AnswerEntry, LetterRow } from "@/components/spelling/AnswerTiles";
@@ -93,6 +94,13 @@ function promptFor(
   practiceKind: PracticeKind | null,
   country: Country,
 ): { phase: Phase; line: string; mood: LandoMood } {
+  if (mode === "flag") {
+    return {
+      phase: { kind: "type", iso: country.iso2 },
+      line: "Whose flag is this?",
+      mood: "think",
+    };
+  }
   if (mode === "silhouette" || practiceKind === "silhouette") {
     return {
       phase: { kind: "type", iso: country.iso2 },
@@ -193,7 +201,7 @@ function createRun(mode: GameMode, profile: Profile | null): RunState {
       line: "Tap a country, then type its name.",
     };
   }
-  if (mode === "where" || mode === "silhouette") return nextQuestion(shell, mode, null);
+  if (mode === "where" || mode === "silhouette" || mode === "flag") return nextQuestion(shell, mode, null);
 
   return {
     ...shell,
@@ -287,7 +295,8 @@ export function GameScreen({ mode }: { mode: GameMode }) {
   const reveal = run.phase.kind === "feedback" ? run.phase.reveal : null;
   const showSilhouette =
     mode === "silhouette" || (mode === "practice" && run.practiceKind === "silhouette");
-  const showMap = run.phase.kind === "continent" || (!showSilhouette && run.phase.kind !== "empty");
+  const showFlag = mode === "flag";
+  const showMap = run.phase.kind === "continent" || (!showSilhouette && !showFlag && run.phase.kind !== "empty");
   const activeIso =
     run.phase.kind === "type" || run.phase.kind === "ask" || run.phase.kind === "feedback"
       ? run.phase.iso
@@ -561,6 +570,7 @@ export function GameScreen({ mode }: { mode: GameMode }) {
           />
         ) : null}
         {showSilhouette && activeIso ? <Silhouette iso={activeIso} /> : null}
+        {showFlag && activeIso ? <FlagPrompt iso={activeIso} /> : null}
         {run.phase.kind === "empty" ? (
           <div className="grid h-full place-items-center px-6 text-center">
             <Lando mood={run.mood} className="h-40" />
