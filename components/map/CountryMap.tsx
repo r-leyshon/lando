@@ -61,9 +61,45 @@ function spriteSize(zoom: number) {
   return { width, height: width * 0.75 };
 }
 
+function countryFocus(feature: GlobeFeature) {
+  let best: Polygon | null = null;
+  let bestArea = 0;
+  for (const polygon of polygonsOf(feature)) {
+    const shape: Feature<Polygon> = { type: "Feature", properties: {}, geometry: polygon };
+    const area = geoArea(shape);
+    if (area > bestArea) {
+      best = polygon;
+      bestArea = area;
+    }
+  }
+  if (!best) return null;
+  const center = geoCentroid({ type: "Feature", properties: {}, geometry: best });
+  if (!Number.isFinite(center[0]) || !Number.isFinite(center[1])) return null;
+  let minLon = 180;
+  let maxLon = -180;
+  let minLat = 90;
+  let maxLat = -90;
+  for (const ring of best.coordinates) {
+    for (const pair of ring) {
+      minLon = Math.min(minLon, pair[0]);
+      maxLon = Math.max(maxLon, pair[0]);
+      minLat = Math.min(minLat, pair[1]);
+      maxLat = Math.max(maxLat, pair[1]);
+    }
+  }
+  let width = maxLon - minLon;
+  if (width > 180) width = 360 - width;
+  const span = Math.max(width, maxLat - minLat, 0.8);
+  return {
+    center: [center[0], center[1]] as [number, number],
+    zoom: Math.min(8, Math.max(4, 80 / span)),
+  };
+}
+
 export function CountryMap({
   board,
   focus = null,
+  focusCountry = null,
   stamped,
   selected,
   reveal,
@@ -72,6 +108,7 @@ export function CountryMap({
 }: {
   board: BoardId;
   focus?: ContinentId | null;
+  focusCountry?: string | null;
   stamped: ReadonlySet<string>;
   selected: string | null;
   reveal: string | null;
@@ -91,6 +128,7 @@ export function CountryMap({
   const zoomAnim = useRef(0);
   const focusAnim = useRef(0);
   const wheelTimer = useRef(0);
+  const focusToken = useRef(0);
   const sizeRef = useRef({ w: 360, h: 420 });
   const rotateRef = useRef<[number, number]>([-BOARD_VIEWS[board].center[0], -BOARD_VIEWS[board].center[1]]);
   const zoomRef = useRef(1);
@@ -265,22 +303,26 @@ export function CountryMap({
   }, [board]);
 
   useEffect(() => {
+    const country = focusCountry ? features.find((item) => item.properties.iso2 === focusCountry) : null;
+    const framed = country ? countryFocus(country) : null;
     const view = BOARD_VIEWS[focus ?? board];
-    const zoomTo = focus ? CONTINENT_ZOOM[focus] : 1;
-    const targetLambda = -view.center[0];
-    const targetPhi = Math.max(-85, Math.min(85, -view.center[1]));
-    const fromLambda = rotateRef.current[0];
-    const fromPhi = rotateRef.current[1];
-    const fromZoom = zoomRef.current;
+    const zoomTo = framed ? framed.zoom : focus ? CONTINENT_ZOOM[focus] : 1;
+    const targetLambda = framed ? -framed.center[0] : -view.center[0];
+    const targetPhi = Math.max(-85, Math.min(85, framed ? -framed.center[1] : -view.center[1]));
+    let fromLambda = rotateRef.current[0];
+    let fromPhi = rotateRef.current[1];
+    let fromZoom = zoomRef.current;
     let dLambda = targetLambda - fromLambda;
     while (dLambda > 180) dLambda -= 360;
     while (dLambda < -180) dLambda += 360;
     const dPhi = targetPhi - fromPhi;
     const dZoom = zoomTo - fromZoom;
     if (Math.abs(dLambda) < 0.5 && Math.abs(dPhi) < 0.5 && Math.abs(dZoom) < 0.02) return;
+    const token = ++focusToken.current;
     const start = performance.now();
     gesturing.current = true;
     const step = (now: number) => {
+      if (token !== focusToken.current) return;
       const t = Math.min(1, (now - start) / 680);
       const eased = 1 - (1 - t) ** 3;
       rotateRef.current = [fromLambda + dLambda * eased, Math.max(-85, Math.min(85, fromPhi + dPhi * eased))];
@@ -291,8 +333,11 @@ export function CountryMap({
     };
     window.cancelAnimationFrame(focusAnim.current);
     focusAnim.current = window.requestAnimationFrame(step);
-    return () => window.cancelAnimationFrame(focusAnim.current);
-  }, [board, focus]);
+    return () => {
+      focusToken.current += 1;
+      window.cancelAnimationFrame(focusAnim.current);
+    };
+  }, [board, features, focus, focusCountry]);
 
   useEffect(() => {
     const element = frame.current;
@@ -365,6 +410,7 @@ export function CountryMap({
     const index = path ? Number(path.getAttribute("data-index")) : NaN;
     press.current = Number.isInteger(index) ? (featuresRef.current[index]?.properties ?? null) : null;
     event.preventDefault();
+    focusToken.current += 1;
     window.cancelAnimationFrame(zoomAnim.current);
     window.cancelAnimationFrame(focusAnim.current);
     window.cancelAnimationFrame(raf.current);

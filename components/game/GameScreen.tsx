@@ -33,6 +33,7 @@ type Phase =
   | { kind: "type"; iso: string }
   | { kind: "ask"; iso: string }
   | { kind: "feedback"; tone: "good" | "bad"; iso: string; reveal: string | null; tiles?: LetterTile[] }
+  | { kind: "answer"; iso: string; name: string; note: string }
   | { kind: "victory" }
   | { kind: "empty" };
 
@@ -224,6 +225,7 @@ export function GameScreen({ mode }: { mode: GameMode }) {
     tiles: [],
   });
   const tries = useRef(0);
+  const answerAt = useRef(0);
   const [confirmReset, setConfirmReset] = useState(false);
   const profileRef = useRef(profile);
   profileRef.current = profile;
@@ -296,16 +298,21 @@ export function GameScreen({ mode }: { mode: GameMode }) {
   const hereDone = here.filter((country) => run.stamped.includes(country.iso2)).length;
   const stamped = new Set(run.stamped);
   const selected =
-    run.phase.kind === "type" || (run.phase.kind === "feedback" && run.phase.tone === "good")
+    run.phase.kind === "type" ||
+    run.phase.kind === "answer" ||
+    (run.phase.kind === "feedback" && run.phase.tone === "good")
       ? run.phase.iso
       : null;
-  const reveal = run.phase.kind === "feedback" ? run.phase.reveal : null;
+  const reveal =
+    run.phase.kind === "answer" ? run.phase.iso : run.phase.kind === "feedback" ? run.phase.reveal : null;
   const showSilhouette =
     mode === "silhouette" || (mode === "practice" && run.practiceKind === "silhouette");
   const showFlag = mode === "flag";
   const showMap = run.phase.kind === "continent" || (!showSilhouette && !showFlag && run.phase.kind !== "empty");
+  const focusCountry =
+    run.phase.kind === "answer" || (mode === "name" && run.phase.kind === "type") ? run.phase.iso : null;
   const activeIso =
-    run.phase.kind === "type" || run.phase.kind === "ask" || run.phase.kind === "feedback"
+    run.phase.kind === "type" || run.phase.kind === "ask" || run.phase.kind === "feedback" || run.phase.kind === "answer"
       ? run.phase.iso
       : null;
 
@@ -349,21 +356,53 @@ export function GameScreen({ mode }: { mode: GameMode }) {
     );
   }
 
-  function onMiss(iso: string, line: string, outcome: Outcome = "miss", tiles?: LetterTile[]) {
-    if (!run) return;
-    record(iso, outcome, 0, false);
-    sfx.miss();
+  function showAnswer(iso: string, note: string, outcome?: Outcome) {
+    const country = countryByIso.get(iso);
+    if (!country || !run) return;
+    if (outcome) {
+      record(iso, outcome, 0, false);
+      sfx.miss();
+    }
+    inputRef.current?.blur();
+    tries.current = 0;
+    answerAt.current = performance.now();
+    setDraft("");
+    setMarks(null);
     setRun((current) =>
       current
         ? {
             ...current,
             streak: 0,
-            phase: { kind: "feedback", tone: "bad", iso, reveal: iso, tiles },
-            line,
+            phase: { kind: "answer", iso, name: country.name, note },
+            line: "The answer",
             mood: "oops",
           }
         : current,
     );
+  }
+
+  function dismissAnswer() {
+    if (performance.now() - answerAt.current < 500) return;
+    sfx.tap();
+    setRun((current) => {
+      if (!current || current.phase.kind !== "answer") return current;
+      if (mode === "name") {
+        return {
+          ...current,
+          phase: { kind: "choose" },
+          mood: "idle",
+          practiceKind: null,
+          line: "Tap another country.",
+        };
+      }
+      return nextQuestion(current, mode, profileRef.current);
+    });
+  }
+
+  function giveUp() {
+    if (!run || (run.phase.kind !== "type" && run.phase.kind !== "ask")) return;
+    const note = run.streak > 0 ? "Your streak starts again." : "";
+    showAnswer(run.phase.iso, note, "skip");
   }
 
   function focusAnswer() {
@@ -412,22 +451,7 @@ export function GameScreen({ mode }: { mode: GameMode }) {
     record(iso, "miss", 0, false);
     sfx.miss();
     if (attempt >= 3) {
-      tries.current = 0;
-      setDraft("");
-      setRun((current) => {
-        if (!current) return current;
-        const line = `The name is ${country.name}. ${mode === "name" ? "Tap another country." : STREAK_RESET}`;
-        if (mode === "name") {
-          return { ...current, streak: 0, phase: { kind: "choose", tiles }, line, mood: "oops" };
-        }
-        return {
-          ...current,
-          streak: 0,
-          phase: { kind: "feedback", tone: "bad", iso, reveal: iso, tiles },
-          line,
-          mood: "oops",
-        };
-      });
+      showAnswer(iso, run.streak > 0 ? "Your streak starts again." : "");
       return;
     }
     const left = 3 - attempt;
@@ -450,7 +474,7 @@ export function GameScreen({ mode }: { mode: GameMode }) {
       setRun((current) => (current ? { ...current, line: hit.note, mood: "think" } : current));
       return;
     }
-    if (run.phase.kind === "feedback" || run.phase.kind === "victory") return;
+    if (run.phase.kind === "feedback" || run.phase.kind === "victory" || run.phase.kind === "answer") return;
     sfx.tap();
     tries.current = 0;
     setDraft("");
@@ -481,12 +505,9 @@ export function GameScreen({ mode }: { mode: GameMode }) {
       if (hit.iso2 === run.phase.iso) onCorrect(hit.iso2, "correct");
       else {
         const tapped = countryByIso.get(hit.iso2);
-        const wanted = countryByIso.get(run.phase.iso);
-        const wantedName = wanted?.name ?? "another country";
-        const line = tapped
-          ? `That's ${tapped.name}. Lando asked for ${wantedName}. ${STREAK_RESET}`
-          : `Not that one. Lando asked for ${wantedName}. ${STREAK_RESET}`;
-        onMiss(run.phase.iso, line);
+        const note = tapped ? `You tapped ${tapped.name}.` : "Not that one.";
+        const streakNote = run.streak > 0 ? " Your streak starts again." : "";
+        showAnswer(run.phase.iso, `${note}${streakNote}`, "miss");
       }
       return;
     }
@@ -572,6 +593,7 @@ export function GameScreen({ mode }: { mode: GameMode }) {
           <CountryMap
             board={mapBoard}
             focus={run.phase.kind === "continent" ? null : run.continent}
+            focusCountry={focusCountry}
             stamped={stamped}
             selected={selected}
             reveal={reveal}
@@ -591,7 +613,13 @@ export function GameScreen({ mode }: { mode: GameMode }) {
       <section ref={sheetRef} className="sheet safe-bottom min-h-0 max-h-[62%] shrink overflow-y-auto overscroll-contain px-3 pt-3 pb-4 group-data-[tight=true]:max-h-[46%]">
         <div className="flex items-end gap-2">
           <Lando mood={run.mood} className="h-24 shrink-0 group-data-[tight=true]:hidden" />
-          <Speech>{run.line}</Speech>
+          <Speech
+            answer={run.phase.kind === "answer" ? run.phase.name : null}
+            note={run.phase.kind === "answer" ? run.phase.note : null}
+            onDismiss={run.phase.kind === "answer" ? dismissAnswer : undefined}
+          >
+            {run.line}
+          </Speech>
         </div>
 
         {run.phase.kind === "continent" ? (
@@ -669,16 +697,15 @@ export function GameScreen({ mode }: { mode: GameMode }) {
             >
               {hint.used === 0 ? "Ask for a hint" : hint.used === 1 ? "Another hint" : hint.used === 2 ? "Last hint" : "That's all the hints"}
             </button>
+            <button type="button" className="chunky mt-2 min-h-12 w-full bg-paper font-extrabold" onClick={giveUp}>
+              I don't know
+            </button>
           </>
         ) : null}
 
-        {run.phase.kind === "feedback" && run.phase.tone === "bad" ? (
-          <button
-            type="button"
-            className="chunky mt-3 min-h-12 w-full bg-pick font-extrabold"
-            onClick={() => setRun((current) => (current ? afterFeedback(current, mode, profileRef.current) : current))}
-          >
-            Next
+        {run.phase.kind === "ask" ? (
+          <button type="button" className="chunky mt-3 min-h-12 w-full bg-paper font-extrabold" onClick={giveUp}>
+            I don't know
           </button>
         ) : null}
 
@@ -769,7 +796,7 @@ function nextQuestion(current: RunState, mode: GameMode, profile: Profile | null
 
 function phaseIso(current: RunState) {
   const phase = current.phase;
-  if (phase.kind === "type" || phase.kind === "ask" || phase.kind === "feedback") {
+  if (phase.kind === "type" || phase.kind === "ask" || phase.kind === "feedback" || phase.kind === "answer") {
     return phase.iso;
   }
   return null;

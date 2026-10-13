@@ -36,13 +36,44 @@ export function Lando({ mood, className = "" }: { mood: LandoMood; className?: s
   );
 }
 
-export function Speech({ children }: { children: string }) {
+export function Speech({
+  children,
+  answer,
+  note,
+  onDismiss,
+}: {
+  children: string;
+  answer?: string | null;
+  note?: string | null;
+  onDismiss?: () => void;
+}) {
+  const body = answer ? (
+    <>
+      <p className="text-sm font-bold">The answer</p>
+      <p className="mt-1 rounded-xl bg-sand px-3 py-2 text-2xl leading-tight break-words">{answer}</p>
+      {note ? <p className="mt-2 text-sm font-bold">{note}</p> : null}
+      {onDismiss ? <p className="mt-2 text-sm font-bold">Tap to carry on.</p> : null}
+    </>
+  ) : (
+    children
+  );
+
+  if (onDismiss) {
+    return (
+      <button
+        type="button"
+        aria-live="polite"
+        onClick={onDismiss}
+        className="chunky relative w-full bg-paper px-4 py-3 text-left text-lg leading-snug font-extrabold text-ink"
+      >
+        {body}
+      </button>
+    );
+  }
+
   return (
-    <div
-      aria-live="polite"
-      className="chunky relative bg-paper px-4 py-3 text-lg leading-snug font-extrabold text-ink"
-    >
-      {children}
+    <div aria-live="polite" className="chunky relative bg-paper px-4 py-3 text-lg leading-snug font-extrabold text-ink">
+      {body}
     </div>
   );
 }
