@@ -52,7 +52,7 @@ export function AnswerEntry({
         onSubmit();
       }}
     >
-      <div className="relative min-h-12" onClick={() => inputRef.current?.focus()}>
+      <div className="relative min-h-12" onClick={() => inputRef.current?.focus({ preventScroll: true })}>
         {tiles.length > 0 ? (
           <LetterRow tiles={tiles} />
         ) : (

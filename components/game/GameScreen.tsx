@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import { CountryMap } from "@/components/map/CountryMap";
 import { FlagPrompt } from "@/components/game/FlagPrompt";
+import { revealAnswer, useVisibleScreen } from "@/components/game/visible-screen";
 import { Silhouette } from "@/components/map/Silhouette";
 import { Lando, Speech } from "@/components/lando/Lando";
 import { AnswerEntry, LetterRow } from "@/components/spelling/AnswerTiles";
@@ -227,6 +228,9 @@ export function GameScreen({ mode }: { mode: GameMode }) {
   const profileRef = useRef(profile);
   profileRef.current = profile;
   const inputRef = useRef<HTMLInputElement>(null);
+  const screenRef = useRef<HTMLElement>(null);
+  const sheetRef = useRef<HTMLElement>(null);
+  useVisibleScreen(screenRef, Boolean(run), () => revealAnswer(inputRef.current, sheetRef.current));
 
   useEffect(() => {
     if (!ready) return;
@@ -265,7 +269,10 @@ export function GameScreen({ mode }: { mode: GameMode }) {
   }, [answerKey]);
 
   useEffect(() => {
-    if (run?.phase.kind === "type") inputRef.current?.focus();
+    if (run?.phase.kind !== "type") return;
+    inputRef.current?.focus({ preventScroll: true });
+    const frame = requestAnimationFrame(() => revealAnswer(inputRef.current, sheetRef.current));
+    return () => cancelAnimationFrame(frame);
   }, [run?.phase]);
 
   useEffect(() => {
@@ -362,8 +369,8 @@ export function GameScreen({ mode }: { mode: GameMode }) {
   function focusAnswer() {
     const field = inputRef.current;
     if (!field) return;
-    field.focus();
-    field.scrollIntoView({ block: "nearest" });
+    field.focus({ preventScroll: true });
+    revealAnswer(field, sheetRef.current);
   }
 
   function askHint() {
@@ -503,7 +510,10 @@ export function GameScreen({ mode }: { mode: GameMode }) {
   }
 
   return (
-    <main className="flex h-dvh flex-col bg-sea text-ink">
+    <main
+      ref={screenRef}
+      className="group fixed inset-x-0 top-0 flex h-dvh flex-col overflow-hidden overscroll-none bg-sea text-ink"
+    >
       <header className="safe-top flex items-center gap-2 px-3 pt-3 pb-2">
         <Link href="/" className="chunky grid h-11 w-11 place-items-center bg-paper text-xl" aria-label="Back">
           ←
@@ -557,7 +567,7 @@ export function GameScreen({ mode }: { mode: GameMode }) {
         </button>
       </header>
 
-      <div className="relative min-h-0 flex-1">
+      <div className="relative min-h-[max(8.5rem,28%)] flex-1 group-data-[tight=true]:min-h-[30%]">
         {showMap ? (
           <CountryMap
             board={mapBoard}
@@ -578,9 +588,9 @@ export function GameScreen({ mode }: { mode: GameMode }) {
         ) : null}
       </div>
 
-      <section className="sheet safe-bottom max-h-[58dvh] overflow-y-auto px-3 pt-3 pb-4">
+      <section ref={sheetRef} className="sheet safe-bottom min-h-0 max-h-[62%] shrink overflow-y-auto overscroll-contain px-3 pt-3 pb-4 group-data-[tight=true]:max-h-[46%]">
         <div className="flex items-end gap-2">
-          <Lando mood={run.mood} className="h-24 shrink-0" />
+          <Lando mood={run.mood} className="h-24 shrink-0 group-data-[tight=true]:hidden" />
           <Speech>{run.line}</Speech>
         </div>
 
@@ -691,7 +701,7 @@ export function GameScreen({ mode }: { mode: GameMode }) {
         ) : null}
 
         {run.phase.kind !== "victory" && run.phase.kind !== "empty" ? (
-          <div className="mt-3 flex items-center justify-between gap-2 text-sm font-bold">
+          <div className="mt-3 flex items-center justify-between gap-2 text-sm font-bold group-data-[tight=true]:hidden">
             <Link href={`/leaderboard?mode=${mode}`} className="underline">
               Scores
             </Link>
