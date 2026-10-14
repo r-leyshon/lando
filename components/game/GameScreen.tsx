@@ -742,20 +742,30 @@ export function GameScreen({ mode }: { mode: GameMode }) {
 
         {run.phase.kind === "type" ? (
           <div className="pointer-events-none absolute inset-x-3 top-2 z-20 flex justify-center pr-14">
-            <div
-              data-typed-word
-              className="pointer-events-auto max-w-full rounded-[14px] border-[3px] border-ink bg-paper px-3 py-2 shadow-[3px_3px_0_#2a241b]"
-              onPointerDown={(event) => {
-                event.preventDefault();
-                focusAnswer();
-              }}
-            >
-              {typedTiles.length > 0 ? (
+            {typedTiles.length > 0 ? (
+              <div
+                data-typed-word
+                className="pointer-events-auto max-w-full rounded-[14px] border-[3px] border-ink bg-paper px-3 py-2 shadow-[3px_3px_0_#2a241b]"
+                onPointerDown={(event) => {
+                  event.preventDefault();
+                  focusAnswer();
+                }}
+              >
                 <LetterRow tiles={typedTiles} />
-              ) : (
-                <p className="px-2 py-1 text-center font-extrabold text-ink/50">Type the name</p>
-              )}
-            </div>
+              </div>
+            ) : (
+              <button
+                type="button"
+                data-typed-word
+                className="chunky pointer-events-auto min-h-12 bg-paper px-4 font-extrabold"
+                onPointerDown={(event) => {
+                  event.preventDefault();
+                  focusAnswer();
+                }}
+              >
+                Tap to type the answer
+              </button>
+            )}
           </div>
         ) : null}
 

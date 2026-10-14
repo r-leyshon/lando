@@ -1,6 +1,6 @@
 "use client";
 
-import type { RefObject } from "react";
+import type { PointerEvent, RefObject } from "react";
 import { draftTiles, type LetterTile } from "@/lib/spelling";
 
 export function LetterRow({ tiles }: { tiles: LetterTile[] }) {
@@ -46,6 +46,11 @@ export function AnswerEntry({
   showLetters?: boolean;
 }) {
   const tiles = marks ?? draftTiles(value);
+  const lettersVisible = showLetters && tiles.length > 0;
+  function focusField(event: PointerEvent<HTMLElement>) {
+    event.preventDefault();
+    inputRef.current?.focus({ preventScroll: true });
+  }
   return (
     <form
       className="mt-3 grid gap-3"
@@ -54,32 +59,55 @@ export function AnswerEntry({
         onSubmit();
       }}
     >
-      <div className="relative min-h-12" onClick={() => inputRef.current?.focus({ preventScroll: true })}>
-        {showLetters && tiles.length > 0 ? (
+      {lettersVisible ? (
+        <div className="relative min-h-12" onPointerDown={focusField}>
           <LetterRow tiles={tiles} />
-        ) : (
-          <p className="py-2 text-center font-extrabold text-ink/50">Type the name</p>
-        )}
-        <label className="sr-only" htmlFor="country-answer">
-          Country name
-        </label>
-        <input
-          ref={inputRef}
-          id="country-answer"
-          value={value}
-          onChange={(event) => onChange(event.target.value)}
-          autoComplete="off"
-          autoCorrect="off"
-          autoCapitalize="words"
-          spellCheck={false}
-          enterKeyHint="done"
-          className="absolute inset-0 z-10 cursor-text bg-transparent text-base text-transparent caret-transparent outline-none"
-          aria-label="Country name"
-        />
-      </div>
+          <AnswerField inputRef={inputRef} value={value} onChange={onChange} className="absolute inset-0 z-10 cursor-text bg-transparent text-base text-transparent caret-transparent outline-none" />
+        </div>
+      ) : (
+        <>
+          <button type="button" className="chunky min-h-12 w-full bg-paper font-extrabold" onPointerDown={focusField}>
+            Tap to type the answer
+          </button>
+          <AnswerField inputRef={inputRef} value={value} onChange={onChange} className="sr-only" />
+        </>
+      )}
       <button type="submit" className="chunky min-h-12 bg-pick font-extrabold">
         Go
       </button>
     </form>
+  );
+}
+
+function AnswerField({
+  inputRef,
+  value,
+  onChange,
+  className,
+}: {
+  inputRef: RefObject<HTMLInputElement | null>;
+  value: string;
+  onChange: (value: string) => void;
+  className: string;
+}) {
+  return (
+    <>
+      <label className="sr-only" htmlFor="country-answer">
+        Country name
+      </label>
+      <input
+        ref={inputRef}
+        id="country-answer"
+        value={value}
+        onChange={(event) => onChange(event.target.value)}
+        autoComplete="off"
+        autoCorrect="off"
+        autoCapitalize="words"
+        spellCheck={false}
+        enterKeyHint="done"
+        className={className}
+        aria-label="Country name"
+      />
+    </>
   );
 }
