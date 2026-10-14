@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type PointerEvent as ReactPointerEvent } from "react";
 import { CountryMap } from "@/components/map/CountryMap";
 import { FlagPrompt } from "@/components/game/FlagPrompt";
-import { revealAnswer, sheetLimits, useKeyboardInset } from "@/components/game/visible-screen";
+import { revealAnswer, sheetLimits, usePinnedScreen } from "@/components/game/visible-screen";
 import { Silhouette } from "@/components/map/Silhouette";
 import { Lando, Speech } from "@/components/lando/Lando";
 import { AnswerEntry, LetterRow } from "@/components/spelling/AnswerTiles";
@@ -264,10 +264,11 @@ export function GameScreen({ mode }: { mode: GameMode }) {
   const sheetRef = useRef<HTMLElement>(null);
   const sheetBodyRef = useRef<HTMLDivElement>(null);
   const draggedSheet = useRef(false);
+  const sheetPlace = useRef<string | null>(null);
   const sheetDrag = useRef<{ id: number; startY: number; startH: number } | null>(null);
   const [draggingSheet, setDraggingSheet] = useState(false);
   const [sheetHeight, setSheetHeight] = useState<number | null>(null);
-  const keyboardInset = useKeyboardInset(Boolean(run));
+  usePinnedScreen(Boolean(run));
 
   useEffect(() => {
     if (!ready || gate === "checking") return;
@@ -316,7 +317,14 @@ export function GameScreen({ mode }: { mode: GameMode }) {
     const stage = stageRef.current;
     const body = sheetBodyRef.current;
     if (!run || !stage || !body) return;
-    const { min, max } = sheetLimits(stage.clientHeight, keyboardInset);
+    const { min, max } = sheetLimits(stage.clientHeight);
+    const place =
+      run.phase.kind === "continent" || run.phase.kind === "victory" || run.phase.kind === "empty" ? "menu" : "play";
+    const placeKey = `${mode}:${place}`;
+    if (sheetPlace.current !== placeKey) {
+      sheetPlace.current = placeKey;
+      draggedSheet.current = false;
+    }
     if (draggedSheet.current) {
       setSheetHeight((current) => {
         if (current == null) return current;
@@ -327,7 +335,7 @@ export function GameScreen({ mode }: { mode: GameMode }) {
     }
     const wanted = Math.min(max, Math.max(min, body.offsetHeight + 44));
     setSheetHeight((current) => (current === wanted ? current : wanted));
-  }, [run, keyboardInset, hint.tiles.length, hint.used, confirmReset]);
+  }, [run, mode, hint.tiles.length, hint.used, confirmReset]);
 
   useEffect(() => {
     if (!run || run.phase.kind !== "feedback" || run.phase.tone !== "good") return;
@@ -464,6 +472,21 @@ export function GameScreen({ mode }: { mode: GameMode }) {
     revealAnswer(field, sheetRef.current);
   }
 
+  function dismissKeyboard(event: ReactPointerEvent<HTMLElement>) {
+    const field = inputRef.current;
+    if (!field || document.activeElement !== field) return;
+    const target = event.target;
+    if (!(target instanceof Element)) return;
+    if (field.form?.contains(target)) return;
+    if (target.closest("[data-sheet-handle]")) return;
+    field.blur();
+    const inSheet = sheetRef.current?.contains(target) ?? false;
+    if (!inSheet && !target.closest("button, a")) {
+      event.preventDefault();
+      event.stopPropagation();
+    }
+  }
+
   function askHint() {
     if (!run || run.phase.kind !== "type" || hint.used >= 3) return;
     const country = countryByIso.get(run.phase.iso);
@@ -585,7 +608,7 @@ export function GameScreen({ mode }: { mode: GameMode }) {
   function sheetRange() {
     const stage = stageRef.current;
     if (!stage) return { min: 156, max: 420 };
-    return sheetLimits(stage.clientHeight, keyboardInset);
+    return sheetLimits(stage.clientHeight);
   }
 
   function onSheetDown(event: ReactPointerEvent<HTMLDivElement>) {
@@ -636,7 +659,10 @@ export function GameScreen({ mode }: { mode: GameMode }) {
       : Math.round(((sheetHeight - sheetMin) / (sheetMax - sheetMin)) * 100);
 
   return (
-    <main className="fixed inset-x-0 top-0 flex h-dvh flex-col overflow-hidden overscroll-none bg-sea text-ink">
+    <main
+      className="fixed inset-x-0 top-0 flex h-dvh flex-col overflow-hidden overscroll-none bg-sea text-ink"
+      onPointerDownCapture={dismissKeyboard}
+    >
       <header className="safe-top flex items-center gap-2 px-3 pt-3 pb-2">
         <Link href="/" className="chunky grid h-11 w-11 place-items-center bg-paper text-xl" aria-label="Back">
           ←
@@ -717,10 +743,10 @@ export function GameScreen({ mode }: { mode: GameMode }) {
           ref={sheetRef}
           className="sheet absolute inset-x-0 z-10 overflow-y-auto overscroll-contain"
           style={{
-            bottom: keyboardInset,
+            bottom: 0,
             height: sheetHeight ?? undefined,
             maxHeight: sheetMax,
-            transition: draggingSheet ? "none" : "height 180ms ease, bottom 180ms ease",
+            transition: draggingSheet ? "none" : "height 180ms ease",
           }}
         >
         <div
@@ -731,6 +757,7 @@ export function GameScreen({ mode }: { mode: GameMode }) {
           aria-valuemax={100}
           aria-valuenow={Math.max(0, Math.min(100, sheetPercent))}
           tabIndex={0}
+          data-sheet-handle
           className="sticky top-0 z-10 flex h-11 cursor-grab touch-none items-center justify-center bg-paper active:cursor-grabbing"
           onPointerDown={onSheetDown}
           onPointerMove={onSheetMove}

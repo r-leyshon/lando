@@ -8,8 +8,27 @@ import type { CountryStat, Profile } from "@/lib/profile";
 
 let ready: Promise<ReturnType<typeof drizzle> | null> | null = null;
 
+/** Neon adds channel_binding for direct Postgres clients. The HTTP driver cannot use it. */
+function databaseUrl() {
+  const value = process.env.DATABASE_URL;
+  if (!value) return null;
+  try {
+    const url = new URL(value);
+    url.searchParams.delete("channel_binding");
+    return url.toString();
+  } catch {
+    return value;
+  }
+}
+
+function sqlClient() {
+  const url = databaseUrl();
+  if (!url) return null;
+  return neon(url);
+}
+
 async function connect() {
-  const url = process.env.DATABASE_URL;
+  const url = databaseUrl();
   if (!url) return null;
   const sql = neon(url);
   await sql`CREATE TABLE IF NOT EXISTS players (
@@ -62,22 +81,33 @@ export async function findPlayerByCode(recoveryCode: string) {
   return playerBundle(player.id);
 }
 
+export class DatabaseUnavailable extends Error {
+  constructor() {
+    super("Database unavailable");
+  }
+}
+
 async function playerBundle(playerId: string) {
   const db = await getDb();
   if (!db) return null;
-  const [player] = await db.select().from(players).where(eq(players.id, playerId)).limit(1);
-  if (!player) return null;
-  const stats = await db.select().from(countryStats).where(eq(countryStats.playerId, player.id));
-  const bests = await db
-    .select({
-      mode: runs.mode,
-      board: runs.board,
-      bestStreak: max(runs.bestStreak),
-    })
-    .from(runs)
-    .where(eq(runs.playerId, player.id))
-    .groupBy(runs.mode, runs.board);
-  return { player, stats, bests };
+  try {
+    const [player] = await db.select().from(players).where(eq(players.id, playerId)).limit(1);
+    if (!player) return null;
+    const stats = await db.select().from(countryStats).where(eq(countryStats.playerId, player.id));
+    const bests = await db
+      .select({
+        mode: runs.mode,
+        board: runs.board,
+        bestStreak: max(runs.bestStreak),
+      })
+      .from(runs)
+      .where(eq(runs.playerId, player.id))
+      .groupBy(runs.mode, runs.board);
+    return { player, stats, bests };
+  } catch (error) {
+    console.error("Neon query failed", error instanceof Error ? error.message : "unknown");
+    throw new DatabaseUnavailable();
+  }
 }
 
 export async function findPlayerById(id: string) {
@@ -122,7 +152,8 @@ export function toProfile(found: NonNullable<Awaited<ReturnType<typeof findPlaye
 
 export async function attachGoogle(id: string, googleSub: string, nickname: string) {
   if (!(await getDb())) return false;
-  const sql = neon(process.env.DATABASE_URL!);
+  const sql = sqlClient();
+  if (!sql) return false;
   const rows = await sql`UPDATE players
     SET google_sub = ${googleSub}, nickname = ${nickname}
     WHERE id = ${id}::uuid AND (google_sub IS NULL OR google_sub = ${googleSub})
@@ -132,7 +163,8 @@ export async function attachGoogle(id: string, googleSub: string, nickname: stri
 
 export async function renameLinkedPlayer(id: string, googleSub: string, nickname: string) {
   if (!(await getDb())) return false;
-  const sql = neon(process.env.DATABASE_URL!);
+  const sql = sqlClient();
+  if (!sql) return false;
   await sql`UPDATE players SET nickname = ${nickname} WHERE id = ${id}::uuid AND google_sub = ${googleSub}`;
   return true;
 }
@@ -150,7 +182,8 @@ export async function saveSnapshot(
   bestStreaks: Record<string, number>,
 ) {
   if (!(await getDb())) return false;
-  const sql = neon(process.env.DATABASE_URL!);
+  const sql = sqlClient();
+  if (!sql) return false;
   for (const [iso, stat] of Object.entries(stats)) {
     await sql`INSERT INTO country_stats (player_id, country_iso, correct_count, miss_count, near_miss_count, struggle_score)
       VALUES (${playerId}, ${iso}, ${stat.correct}, ${stat.miss}, ${stat.nearMiss}, ${stat.struggle})
@@ -191,7 +224,8 @@ export async function saveProgress(input: {
   completed: boolean;
 }) {
   if (!(await getDb())) return false;
-  const sql = neon(process.env.DATABASE_URL!);
+  const sql = sqlClient();
+  if (!sql) return false;
   await sql`INSERT INTO country_stats (player_id, country_iso, correct_count, miss_count, near_miss_count, struggle_score)
     VALUES (${input.playerId}, ${input.iso}, ${input.correct}, ${input.miss}, ${input.nearMiss}, ${input.struggle})
     ON CONFLICT (player_id, country_iso) DO UPDATE SET

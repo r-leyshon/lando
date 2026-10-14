@@ -42,6 +42,7 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
   const [gate, setGate] = useState<Gate>("checking");
   const [profile, setProfileState] = useState<Profile | null>(null);
   const generation = useRef(0);
+  const refreshFlight = useRef<Promise<void> | null>(null);
 
   const setProfile = useCallback((next: Profile) => {
     saveProfile(next);
@@ -49,7 +50,18 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const refresh = useCallback(async () => {
+    if (refreshFlight.current) return refreshFlight.current;
     const gen = ++generation.current;
+    const flight = runRefresh(gen);
+    refreshFlight.current = flight;
+    try {
+      await flight;
+    } finally {
+      if (refreshFlight.current === flight) refreshFlight.current = null;
+    }
+  }, []);
+
+  async function runRefresh(gen: number) {
     const cached = loadProfile();
     if (cached) setProfileState((current) => current ?? cached);
     try {
@@ -84,7 +96,7 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
     } finally {
       if (generation.current === gen) setReady(true);
     }
-  }, []);
+  }
 
   useEffect(() => {
     const cached = loadProfile();

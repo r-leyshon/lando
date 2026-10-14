@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect } from "react";
 
 /** Slide the answer into the bottom sheet without scrolling the page. */
 export function revealAnswer(input: HTMLInputElement | null, sheet: HTMLElement | null) {
@@ -26,58 +26,53 @@ function virtualKeyboard() {
 }
 
 /**
- * How much of the bottom of the screen the keyboard is covering.
- * The game stays full size; the keyboard draws on top.
+ * Keep the page from sliding when the phone keyboard opens.
+ * The keyboard draws on top. The map and Lando's tab stay where they are.
  */
-export function useKeyboardInset(active: boolean) {
-  const [inset, setInset] = useState(0);
-
+export function usePinnedScreen(active: boolean) {
   useEffect(() => {
     if (!active) return;
     const html = document.documentElement;
-    const previousOverflow = html.style.overflow;
+    const body = document.body;
+    const previous = {
+      htmlOverflow: html.style.overflow,
+      bodyOverflow: body.style.overflow,
+      bodyPosition: body.style.position,
+      bodyInset: body.style.inset,
+      bodyWidth: body.style.width,
+    };
     html.style.overflow = "hidden";
+    body.style.overflow = "hidden";
+    body.style.position = "fixed";
+    body.style.inset = "0";
+    body.style.width = "100%";
     const keyboard = virtualKeyboard();
     if (keyboard) keyboard.overlaysContent = true;
 
-    let frame = 0;
-    const measure = () => {
-      cancelAnimationFrame(frame);
-      frame = requestAnimationFrame(() => {
-        const viewport = window.visualViewport;
-        const fromViewport = viewport ? window.innerHeight - viewport.height - viewport.offsetTop : 0;
-        const rect = keyboard?.boundingRect;
-        const fromKeyboard = rect && rect.height > 0 ? window.innerHeight - rect.top : 0;
-        const next = Math.max(0, fromViewport, fromKeyboard);
-        const rounded = next > 72 ? Math.round(next) : 0;
-        setInset((current) => (current === rounded ? current : rounded));
-        if (window.scrollY !== 0) window.scrollTo(0, 0);
-      });
+    const pin = () => {
+      if (window.scrollX !== 0 || window.scrollY !== 0) window.scrollTo(0, 0);
     };
-
-    measure();
     const viewport = window.visualViewport;
-    viewport?.addEventListener("resize", measure);
-    viewport?.addEventListener("scroll", measure);
-    keyboard?.addEventListener("geometrychange", measure);
-    window.addEventListener("resize", measure);
+    viewport?.addEventListener("scroll", pin);
+    viewport?.addEventListener("resize", pin);
+    window.addEventListener("scroll", pin);
     return () => {
-      cancelAnimationFrame(frame);
-      viewport?.removeEventListener("resize", measure);
-      viewport?.removeEventListener("scroll", measure);
-      keyboard?.removeEventListener("geometrychange", measure);
-      window.removeEventListener("resize", measure);
+      viewport?.removeEventListener("scroll", pin);
+      viewport?.removeEventListener("resize", pin);
+      window.removeEventListener("scroll", pin);
       if (keyboard) keyboard.overlaysContent = false;
-      html.style.overflow = previousOverflow;
+      html.style.overflow = previous.htmlOverflow;
+      body.style.overflow = previous.bodyOverflow;
+      body.style.position = previous.bodyPosition;
+      body.style.inset = previous.bodyInset;
+      body.style.width = previous.bodyWidth;
     };
   }, [active]);
-
-  return inset;
 }
 
 /** How tall Lando's panel may be: a short tab, or tall enough to leave some of the picture. */
-export function sheetLimits(stageHeight: number, keyboardInset: number) {
-  const room = Math.max(0, stageHeight - keyboardInset);
+export function sheetLimits(stageHeight: number) {
+  const room = Math.max(0, stageHeight);
   const min = Math.min(156, Math.max(88, room));
   const peek = Math.max(136, Math.round(room * 0.28));
   const max = Math.max(min, room - peek);

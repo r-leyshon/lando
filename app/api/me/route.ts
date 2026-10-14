@@ -1,5 +1,5 @@
 import { connection } from "next/server";
-import { findPlayerById, getDb, renameLinkedPlayer, saveSnapshot, toProfile } from "@/lib/db";
+import { DatabaseUnavailable, findPlayerById, getDb, renameLinkedPlayer, saveSnapshot, toProfile } from "@/lib/db";
 import { mergeProfiles, parseSnapshot, snapshotAhead } from "@/lib/profile";
 import { readSession } from "@/lib/session";
 
@@ -8,18 +8,33 @@ export async function GET() {
   const session = await readSession();
   if (!session) return Response.json({ error: "Sign in with Google." }, { status: 401 });
   if (!(await getDb())) return Response.json({ error: "I could not open the score book." }, { status: 503 });
-  const found = await findPlayerById(session.pid);
-  if (!found?.player || found.player.googleSub !== session.sub) {
-    return Response.json({ error: "Sign in with Google." }, { status: 401 });
+  try {
+    const found = await findPlayerById(session.pid);
+    if (!found?.player || found.player.googleSub !== session.sub) {
+      return Response.json({ error: "Sign in with Google." }, { status: 401 });
+    }
+    return Response.json(toProfile(found));
+  } catch (error) {
+    if (error instanceof DatabaseUnavailable) {
+      return Response.json({ error: "I could not open the score book." }, { status: 503 });
+    }
+    throw error;
   }
-  return Response.json(toProfile(found));
 }
 
 export async function POST(request: Request) {
   await connection();
   const session = await readSession();
   if (!session) return Response.json({ error: "Sign in with Google." }, { status: 401 });
-  const found = await findPlayerById(session.pid);
+  let found;
+  try {
+    found = await findPlayerById(session.pid);
+  } catch (error) {
+    if (error instanceof DatabaseUnavailable) {
+      return Response.json({ error: "I could not open the score book." }, { status: 503 });
+    }
+    throw error;
+  }
   if (!found?.player || found.player.googleSub !== session.sub) {
     return Response.json({ error: "Sign in with Google." }, { status: 401 });
   }
