@@ -23,7 +23,7 @@ import {
 import { countryByIso, quizCountries, type BoardId, type Country } from "@/lib/countries";
 import { applyOutcome, pickTricky, type Outcome, type Profile } from "@/lib/profile";
 import { sfx } from "@/lib/sound";
-import { judgeGuess, letterTiles, openHint, spellingTarget, type LetterTile } from "@/lib/spelling";
+import { draftTiles, judgeGuess, letterTiles, openHint, spellingTarget, type LetterTile } from "@/lib/spelling";
 import { countries } from "@/lib/countries";
 import type { LandoMood } from "@/lib/sprites";
 
@@ -478,7 +478,7 @@ export function GameScreen({ mode }: { mode: GameMode }) {
     const target = event.target;
     if (!(target instanceof Element)) return;
     if (field.form?.contains(target)) return;
-    if (target.closest("[data-sheet-handle]")) return;
+    if (target.closest("[data-sheet-handle], [data-typed-word]")) return;
     field.blur();
     const inSheet = sheetRef.current?.contains(target) ?? false;
     if (!inSheet && !target.closest("button, a")) {
@@ -652,6 +652,7 @@ export function GameScreen({ mode }: { mode: GameMode }) {
     setSheetHeight(Math.min(max, Math.max(min, next)));
   }
 
+  const typedTiles = marks ?? draftTiles(draft);
   const { min: sheetMin, max: sheetMax } = sheetRange();
   const sheetPercent =
     sheetHeight == null || sheetMax === sheetMin
@@ -738,6 +739,25 @@ export function GameScreen({ mode }: { mode: GameMode }) {
             </div>
           ) : null}
         </div>
+
+        {run.phase.kind === "type" ? (
+          <div className="pointer-events-none absolute inset-x-3 top-2 z-20 flex justify-center pr-14">
+            <div
+              data-typed-word
+              className="pointer-events-auto max-w-full rounded-[14px] border-[3px] border-ink bg-paper px-3 py-2 shadow-[3px_3px_0_#2a241b]"
+              onPointerDown={(event) => {
+                event.preventDefault();
+                focusAnswer();
+              }}
+            >
+              {typedTiles.length > 0 ? (
+                <LetterRow tiles={typedTiles} />
+              ) : (
+                <p className="px-2 py-1 text-center font-extrabold text-ink/50">Type the name</p>
+              )}
+            </div>
+          </div>
+        ) : null}
 
         <section
           ref={sheetRef}
@@ -839,6 +859,7 @@ export function GameScreen({ mode }: { mode: GameMode }) {
               value={draft}
               marks={marks}
               inputRef={inputRef}
+              showLetters={false}
               onChange={(value) => {
                 setDraft(value);
                 setMarks(null);

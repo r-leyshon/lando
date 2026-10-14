@@ -36,12 +36,14 @@ export function AnswerEntry({
   inputRef,
   onChange,
   onSubmit,
+  showLetters = true,
 }: {
   value: string;
   marks: LetterTile[] | null;
   inputRef: RefObject<HTMLInputElement | null>;
   onChange: (value: string) => void;
   onSubmit: () => void;
+  showLetters?: boolean;
 }) {
   const tiles = marks ?? draftTiles(value);
   return (
@@ -53,7 +55,7 @@ export function AnswerEntry({
       }}
     >
       <div className="relative min-h-12" onClick={() => inputRef.current?.focus({ preventScroll: true })}>
-        {tiles.length > 0 ? (
+        {showLetters && tiles.length > 0 ? (
           <LetterRow tiles={tiles} />
         ) : (
           <p className="py-2 text-center font-extrabold text-ink/50">Type the name</p>
