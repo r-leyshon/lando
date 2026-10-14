@@ -10,7 +10,7 @@ export async function POST(request: Request) {
   const db = await getDb();
   if (!db) return Response.json({ database: false, error: "No score database." }, { status: 404 });
   const found = await findPlayerByCode(recoveryCode);
-  if (!found) return Response.json({ error: "Lando could not find that code." }, { status: 404 });
+  if (!found) return Response.json({ error: "I could not find that code." }, { status: 404 });
 
   const stats: Record<string, CountryStat> = {};
   for (const row of found.stats) {

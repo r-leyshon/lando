@@ -12,7 +12,7 @@ export async function POST(request: Request) {
   const nickname = cleanNickname(body?.nickname ?? "");
   const recoveryCode = normalizeCode(body?.recoveryCode ?? "");
   if (!body?.id || !UUID.test(body.id) || !nickname || !/^[A-Z0-9]{6}$/.test(recoveryCode)) {
-    return Response.json({ error: "Tell Lando a name and a valid code." }, { status: 400 });
+    return Response.json({ error: "I need a name and a valid code." }, { status: 400 });
   }
   const saved = await savePlayer({ id: body.id, nickname, recoveryCode });
   return Response.json({ id: body.id, nickname, recoveryCode, database: saved });

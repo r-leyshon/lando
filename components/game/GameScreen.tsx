@@ -68,10 +68,33 @@ function pickIso(isos: string[], stamped: string[], avoid: string | null) {
 
 const STREAK_RESET = "Your streak starts again. The green countries stay.";
 
-function successLine(name: string, streak: number) {
-  if (streak === 1) return `${name}! That's the first one.`;
-  if (streak % 5 === 0) return `${streak} in a row! ${name} gets a stamp.`;
-  return `${name}! That's ${streak} in a row.`;
+function nick(profile: Profile | null | undefined) {
+  const name = profile?.nickname.trim();
+  return name || null;
+}
+
+function successLine(country: string, streak: number, player: string | null) {
+  if (streak === 1) {
+    return player ? `${country}! That's your first one, ${player}.` : `${country}! That's the first one.`;
+  }
+  if (streak % 5 === 0) {
+    return player ? `${streak} in a row, ${player}! ${country} gets a stamp.` : `${streak} in a row! ${country} gets a stamp.`;
+  }
+  return `${country}! That's ${streak} in a row.`;
+}
+
+function startLine(player: string | null) {
+  return player ? `Which part of the world shall we start with, ${player}?` : "Which part of the world shall we start with?";
+}
+
+function nextPartLine(player: string | null) {
+  return player ? `Which part of the world shall we do next, ${player}?` : "Which part of the world shall we do next?";
+}
+
+function continentClear(label: string, player: string | null) {
+  return player
+    ? `That's every country in ${label}, ${player}. Which part shall we do next?`
+    : `That's every country in ${label}. Which part shall we do next?`;
 }
 
 function loadSaved(mode: GameMode) {
@@ -132,11 +155,15 @@ function askForContinent(current: RunState, line: string, mood: LandoMood): RunS
   return { ...current, phase: { kind: "continent" }, line, mood, practiceKind: null };
 }
 
-function beginContinent(current: RunState, mode: GameMode, id: ContinentId): RunState {
+function beginContinent(current: RunState, mode: GameMode, id: ContinentId, player: string | null): RunState {
   const next = { ...current, continent: id };
   const label = BOARD_LABELS[id];
   if (continentLeft(current.stamped, id).length === 0) {
-    return askForContinent(next, `You've named every country in ${label}. Pick another part.`, "wave");
+    return askForContinent(
+      next,
+      player ? `You've named every country in ${label}, ${player}. Pick another part.` : `You've named every country in ${label}. Pick another part.`,
+      "wave",
+    );
   }
   if (mode === "name") {
     return {
@@ -144,7 +171,7 @@ function beginContinent(current: RunState, mode: GameMode, id: ContinentId): Run
       phase: { kind: "choose" },
       mood: "wave",
       practiceKind: null,
-      line: `${label} it is. Tap a country, then type its name.`,
+      line: player ? `${label} it is, ${player}. Tap a country, then tell me its name.` : `${label} it is. Tap a country, then tell me its name.`,
     };
   }
   return nextQuestion(next, mode, null);
@@ -154,11 +181,12 @@ function createRun(mode: GameMode, profile: Profile | null): RunState {
   const saved = loadSaved(mode);
   const base = saved ?? freshRun();
   const continent = saved?.continent && isContinent(saved.continent) ? saved.continent : null;
+  const player = nick(profile);
   const shell: RunState = {
     ...base,
     continent,
     phase: { kind: "continent" },
-    line: "Which part of the world shall we start with?",
+    line: startLine(player),
     mood: "wave",
     practiceKind: null,
   };
@@ -168,7 +196,7 @@ function createRun(mode: GameMode, profile: Profile | null): RunState {
     return {
       ...shell,
       phase: { kind: "victory" },
-      line: "You named every country on the map!",
+      line: player ? `You named every country on the map, ${player}!` : "You named every country on the map!",
       mood: "celebrate",
     };
   }
@@ -180,7 +208,9 @@ function createRun(mode: GameMode, profile: Profile | null): RunState {
         ...shell,
         continent: null,
         phase: { kind: "empty" },
-        line: "Play another game first. I'll remember the countries you found hard.",
+        line: player
+          ? `Play another game first, ${player}. I'll remember the countries you found hard.`
+          : "Play another game first. I'll remember the countries you found hard.",
         mood: "think",
       };
     }
@@ -192,7 +222,7 @@ function createRun(mode: GameMode, profile: Profile | null): RunState {
   if (continentLeft(base.stamped, continent).length === 0) {
     return askForContinent(
       shell,
-      `That's every country in ${BOARD_LABELS[continent]}. Which part shall we do next?`,
+      continentClear(BOARD_LABELS[continent], player),
       "celebrate",
     );
   }
@@ -200,7 +230,7 @@ function createRun(mode: GameMode, profile: Profile | null): RunState {
     return {
       ...shell,
       phase: { kind: "choose" },
-      line: "Tap a country, then type its name.",
+      line: player ? `Tap a country, then tell me its name, ${player}.` : "Tap a country, then tell me its name.",
     };
   }
   if (mode === "where" || mode === "silhouette" || mode === "flag") return nextQuestion(shell, mode, null);
@@ -371,7 +401,7 @@ export function GameScreen({ mode }: { mode: GameMode }) {
             best: Math.max(current.best, streak),
             stamped: current.stamped.includes(iso) ? current.stamped : [...current.stamped, iso],
             phase: { kind: "feedback", tone: "good", iso, reveal: null, tiles },
-            line: successLine(country.name, streak),
+            line: successLine(country.name, streak, nick(profileRef.current)),
             mood: "celebrate",
           }
         : current,
@@ -505,7 +535,7 @@ export function GameScreen({ mode }: { mode: GameMode }) {
       const country = countryByIso.get(hit.iso2);
       if (country && isContinent(country.primary)) {
         const id = country.primary;
-        setRun((current) => (current ? beginContinent(current, mode, id) : current));
+        setRun((current) => (current ? beginContinent(current, mode, id, nick(profileRef.current)) : current));
       }
       return;
     }
@@ -627,7 +657,7 @@ export function GameScreen({ mode }: { mode: GameMode }) {
                 sfx.tap();
                 setRun((current) =>
                   current
-                    ? askForContinent(current, "Which part of the world shall we do next?", "wave")
+                    ? askForContinent(current, nextPartLine(nick(profileRef.current)), "wave")
                     : current,
                 );
               }}
@@ -740,7 +770,7 @@ export function GameScreen({ mode }: { mode: GameMode }) {
                     style={{ background: BOARD_COLORS[id] }}
                     onClick={() => {
                       sfx.tap();
-                      setRun((current) => (current ? beginContinent(current, mode, id) : current));
+                      setRun((current) => (current ? beginContinent(current, mode, id, nick(profileRef.current)) : current));
                     }}
                   >
                     <span className="block text-base font-extrabold">{BOARD_LABELS[id]}</span>
@@ -870,14 +900,16 @@ function nextQuestion(current: RunState, mode: GameMode, profile: Profile | null
         phase: { kind: "empty" },
         practiceKind: null,
         mood: "celebrate",
-        line: "Those hard ones are getting easier. Pick another game when you like.",
+        line: nick(profile)
+          ? `Those hard ones are getting easier, ${nick(profile)}. Pick another game when you like.`
+          : "Those hard ones are getting easier. Pick another game when you like.",
       };
     }
     const prompt = promptFor(mode, "where", country);
     return { ...current, ...prompt, practiceKind: "where" };
   }
   if (!current.continent) {
-    return askForContinent(current, "Which part of the world shall we start with?", "wave");
+    return askForContinent(current, startLine(nick(profile)), "wave");
   }
   const iso = pickIso(
     continentRoster(current.continent).map((country) => country.iso2),
@@ -888,7 +920,7 @@ function nextQuestion(current: RunState, mode: GameMode, profile: Profile | null
   if (!country) {
     return askForContinent(
       current,
-      `That's every country in ${BOARD_LABELS[current.continent]}. Which part shall we do next?`,
+      continentClear(BOARD_LABELS[current.continent], nick(profile)),
       "celebrate",
     );
   }
@@ -929,13 +961,15 @@ function afterFeedback(current: RunState, mode: GameMode, profile: Profile | nul
       ...current,
       phase: { kind: "victory" },
       mood: "celebrate",
-      line: `You named every country on the map! Your best streak is ${current.best}.`,
+      line: nick(profile)
+        ? `You named every country on the map, ${nick(profile)}! Your best streak is ${current.best}.`
+        : `You named every country on the map! Your best streak is ${current.best}.`,
     };
   }
   if (current.continent && continentLeft(current.stamped, current.continent).length === 0) {
     return askForContinent(
       current,
-      `That's every country in ${BOARD_LABELS[current.continent]}. Which part shall we do next?`,
+      continentClear(BOARD_LABELS[current.continent], nick(profile)),
       "celebrate",
     );
   }

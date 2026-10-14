@@ -41,7 +41,7 @@ async function postJson(url: string, body: unknown) {
     body: JSON.stringify(body),
   });
   const payload = (await response.json().catch(() => null)) as { error?: string } | null;
-  if (!response.ok) throw new Error(payload?.error ?? "Lando could not save that.");
+  if (!response.ok) throw new Error(payload?.error ?? "I could not save that.");
   return payload;
 }
 
@@ -82,7 +82,7 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
 
   async function restore(code: string) {
     const normalized = normalizeCode(code);
-    if (!/^[A-Z0-9]{6}$/.test(normalized)) return "A Lando code looks like ABC-123.";
+    if (!/^[A-Z0-9]{6}$/.test(normalized)) return "My code looks like ABC-123.";
     const local = loadProfile();
     if (local && local.recoveryCode === normalized) {
       setProfile({ ...local, seenCode: true });
@@ -99,7 +99,7 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
         if (payload.database === false) {
           return "That code is not on this phone.";
         }
-        return payload.error ?? "Lando could not find that code.";
+        return payload.error ?? "I could not find that code.";
       }
       const restored: Profile = {
         id: payload.id,
@@ -113,7 +113,7 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
       setProfile(restored);
       return null;
     } catch {
-      return "Lando could not check that code just now.";
+      return "I could not check that code just now.";
     }
   }
 

@@ -119,8 +119,12 @@ export function LeaderboardScreen() {
         <Lando mood="wave" className="h-24 shrink-0" />
         <Speech>
           {database
-            ? `Here are the longest streaks for ${MODE_LABELS[mode]}.`
-            : `This is your best streak for ${MODE_LABELS[mode]} on this phone.`}
+            ? profile
+              ? `Here are the longest streaks for ${MODE_LABELS[mode]}, ${profile.nickname}.`
+              : `Here are the longest streaks for ${MODE_LABELS[mode]}.`
+            : profile
+              ? `This is your best streak for ${MODE_LABELS[mode]} on this phone, ${profile.nickname}.`
+              : `This is your best streak for ${MODE_LABELS[mode]} on this phone.`}
         </Speech>
       </div>
       <div className="mt-4">

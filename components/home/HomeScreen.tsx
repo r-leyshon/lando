@@ -9,11 +9,11 @@ import { quizCountries } from "@/lib/countries";
 import { bestStreak, cleanNickname, passportCount } from "@/lib/profile";
 
 const GAMES: { mode: GameMode; detail: string }[] = [
-  { mode: "name", detail: "Tap a country, then type its name." },
-  { mode: "where", detail: "Lando says a country. You tap it on the map." },
-  { mode: "silhouette", detail: "Look at the shape, then type the country's name." },
-  { mode: "flag", detail: "Lando shows a flag. You type the country's name." },
-  { mode: "practice", detail: "Try again at the countries you found hard." },
+  { mode: "name", detail: "Tap a country, then tell me its name." },
+  { mode: "where", detail: "I say a country. You tap it on the map." },
+  { mode: "silhouette", detail: "Look at the shape, then tell me the country's name." },
+  { mode: "flag", detail: "I show a flag. You type the country's name." },
+  { mode: "practice", detail: "Have another go at the countries you found hard." },
 ];
 
 export function HomeScreen() {
@@ -47,7 +47,7 @@ export function HomeScreen() {
           <div className="mt-4 flex items-end gap-3">
             <Lando mood="wave" className="h-32 shrink-0" />
             <Speech>
-              {showCode ? "Type the code you wrote down." : "I'm Lando. What should I call you?"}
+              {showCode ? "Type the code you wrote down. I'll look for your stamps." : "I'm Lando. What should I call you?"}
             </Speech>
           </div>
           {showCode ? (
@@ -132,7 +132,7 @@ export function HomeScreen() {
       <div className="px-4 pt-3">
         <div className="flex items-end gap-2">
           <Lando mood="wave" className="h-24 shrink-0" />
-          <Speech>Pick the game you would like to play.</Speech>
+          <Speech>What shall we play, {profile.nickname}?</Speech>
         </div>
         <div className="mt-3 flex items-center justify-between gap-3">
           <p className="font-extrabold">
@@ -167,7 +167,7 @@ export function HomeScreen() {
               Your Lando code
             </h2>
             <p className="mt-3 text-lg font-extrabold">
-              Your stamps stay on this phone. Write this code down so you can get them back on another phone or computer.
+              Your stamps stay on this phone. Write this code down so I can bring them back on another phone or computer.
             </p>
             <p className="mt-3 text-center text-3xl font-extrabold tracking-[0.25em]">{formatCode(profile.recoveryCode)}</p>
             <button
