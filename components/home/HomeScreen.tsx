@@ -1,12 +1,13 @@
 "use client";
 
 import Link from "next/link";
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import { GoogleSignIn } from "@/components/home/GoogleSignIn";
 import { Lando, Speech } from "@/components/lando/Lando";
-import { formatCode, rememberPlayer, usePlayer } from "@/components/player/PlayerProvider";
+import { usePlayer } from "@/components/player/PlayerProvider";
 import { MODE_LABELS, type GameMode } from "@/lib/boards";
 import { quizCountries } from "@/lib/countries";
-import { bestStreak, cleanNickname, passportCount } from "@/lib/profile";
+import { bestStreak, passportCount } from "@/lib/profile";
 
 const GAMES: { mode: GameMode; detail: string }[] = [
   { mode: "name", detail: "Tap a country, then tell me its name." },
@@ -17,90 +18,56 @@ const GAMES: { mode: GameMode; detail: string }[] = [
 ];
 
 export function HomeScreen() {
-  const { ready, profile, setProfile, restore } = usePlayer();
-  const [nickname, setNickname] = useState("");
-  const [code, setCode] = useState("");
-  const [showCode, setShowCode] = useState(false);
-  const [lookingAtCode, setLookingAtCode] = useState(false);
+  const { ready, gate, profile, setProfile, refresh, signIn } = usePlayer();
   const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
 
-  if (!ready) return <div className="h-dvh bg-sea" />;
+  useEffect(() => {
+    void refresh();
+  }, [refresh]);
 
-  if (!profile) {
+  if (!ready || gate === "checking") return <div className="h-dvh bg-sea" />;
+
+  const playing = profile && (gate === "in" || gate === "offline");
+  if (!playing) {
+    const line =
+      gate === "offline"
+        ? "I could not reach the score book. Try again in a moment."
+        : "Welcome to Lando, sign in with Google.";
     return (
       <main className="grid min-h-dvh place-items-center bg-sea px-4 py-8">
-        <form
-          className="chunky w-full max-w-md bg-paper p-5"
-          onSubmit={(event) => {
-            event.preventDefault();
-            setError(null);
-            if (showCode) return;
-            const cleaned = cleanNickname(nickname);
-            if (!cleaned) {
-              setError("Use 2 to 16 letters in your name.");
-              return;
-            }
-            setProfile(rememberPlayer(cleaned));
-          }}
-        >
+        <div className="chunky w-full max-w-md bg-paper p-5">
           <p className="font-pixel text-center text-2xl text-ink">Lando</p>
           <div className="mt-4 flex items-end gap-3">
             <Lando mood="wave" className="h-32 shrink-0" />
-            <Speech>
-              {showCode ? "Type the code you wrote down. I'll look for your stamps." : "I'm Lando. What should I call you?"}
-            </Speech>
+            <Speech>{line}</Speech>
           </div>
-          {showCode ? (
-            <label className="mt-4 grid gap-2 font-extrabold">
-              Lando code
-              <input
-                value={code}
-                onChange={(event) => setCode(event.target.value.toUpperCase())}
-                autoComplete="off"
-                className="field tracking-[0.3em] uppercase"
-                placeholder="ABC-123"
-              />
-            </label>
-          ) : (
-            <label className="mt-4 grid gap-2 font-extrabold">
-              Your name
-              <input
-                value={nickname}
-                onChange={(event) => setNickname(event.target.value)}
-                autoComplete="nickname"
-                className="field"
-                maxLength={16}
-                placeholder="Alex"
-              />
-            </label>
-          )}
-          {error ? <p className="mt-2 font-bold text-coral">{error}</p> : null}
-          {showCode ? (
+          {error ? <p className="mt-3 font-bold text-coral">{error}</p> : null}
+          {busy ? <p className="mt-4 text-center font-extrabold">Signing in…</p> : null}
+          {gate === "offline" ? (
             <button
               type="button"
               className="chunky mt-4 min-h-12 w-full bg-pick font-extrabold"
               onClick={() => {
-                void restore(code).then((message) => setError(message));
+                setError(null);
+                void refresh();
               }}
             >
-              Load my code
+              Try again
             </button>
           ) : (
-            <button type="submit" className="chunky mt-4 min-h-12 w-full bg-pick font-extrabold">
-              Let&apos;s go
-            </button>
+            <GoogleSignIn
+              onCredential={(credential) => {
+                setBusy(true);
+                setError(null);
+                void signIn(credential).then((message) => {
+                  setError(message);
+                  setBusy(false);
+                });
+              }}
+            />
           )}
-          <button
-            type="button"
-            className="mt-3 min-h-11 w-full font-extrabold underline"
-            onClick={() => {
-              setShowCode((current) => !current);
-              setError(null);
-            }}
-          >
-            {showCode ? "I need a new name" : "I already have a Lando code"}
-          </button>
-        </form>
+        </div>
       </main>
     );
   }
@@ -132,20 +99,11 @@ export function HomeScreen() {
       <div className="px-4 pt-3">
         <div className="flex items-end gap-2">
           <Lando mood="wave" className="h-24 shrink-0" />
-          <Speech>What shall we play, {profile.nickname}?</Speech>
+          <Speech>{`What shall we play, ${profile.nickname}?`}</Speech>
         </div>
-        <div className="mt-3 flex items-center justify-between gap-3">
-          <p className="font-extrabold">
-            Stamps {stamps} of {quizCountries.length}
-          </p>
-          <button
-            type="button"
-            className="chunky min-h-11 shrink-0 bg-sand px-3 font-extrabold"
-            onClick={() => setLookingAtCode(true)}
-          >
-            My code
-          </button>
-        </div>
+        <p className="mt-3 font-extrabold">
+          Stamps {stamps} of {quizCountries.length}
+        </p>
       </div>
 
       <section className="grid flex-1 gap-3 px-4 py-4">
@@ -159,30 +117,6 @@ export function HomeScreen() {
           </Link>
         ))}
       </section>
-
-      {!profile.seenCode || lookingAtCode ? (
-        <div className="fixed inset-0 z-20 grid place-items-center bg-ink/40 p-4">
-          <div className="chunky w-full max-w-sm bg-paper p-5" role="dialog" aria-labelledby="lando-code-title">
-            <h2 id="lando-code-title" className="font-pixel text-sm">
-              Your Lando code
-            </h2>
-            <p className="mt-3 text-lg font-extrabold">
-              Your stamps stay on this phone. Write this code down so I can bring them back on another phone or computer.
-            </p>
-            <p className="mt-3 text-center text-3xl font-extrabold tracking-[0.25em]">{formatCode(profile.recoveryCode)}</p>
-            <button
-              type="button"
-              className="chunky mt-4 min-h-12 w-full bg-pick font-extrabold"
-              onClick={() => {
-                setLookingAtCode(false);
-                if (!profile.seenCode) setProfile({ ...profile, seenCode: true });
-              }}
-            >
-              {profile.seenCode ? "OK" : "I've written it down"}
-            </button>
-          </div>
-        </div>
-      ) : null}
     </main>
   );
 }

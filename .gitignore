@@ -36,6 +36,9 @@ yarn-error.log*
 .env*
 !.env.example
 
+# Google OAuth download. The app only needs the client id in env.
+client_secret*.json
+
 # vercel
 .vercel
 

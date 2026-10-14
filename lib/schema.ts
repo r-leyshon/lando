@@ -4,6 +4,7 @@ export const players = pgTable("players", {
   id: uuid("id").primaryKey(),
   nickname: text("nickname").notNull(),
   recoveryCode: text("recovery_code").notNull().unique(),
+  googleSub: text("google_sub").unique(),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
 

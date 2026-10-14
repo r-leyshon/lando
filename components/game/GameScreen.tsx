@@ -245,7 +245,7 @@ function createRun(mode: GameMode, profile: Profile | null): RunState {
 
 export function GameScreen({ mode }: { mode: GameMode }) {
   const router = useRouter();
-  const { ready, profile, setProfile, syncProgress } = usePlayer();
+  const { ready, gate, profile, setProfile, syncProgress } = usePlayer();
   const [run, setRun] = useState<RunState | null>(null);
   const [draft, setDraft] = useState("");
   const [marks, setMarks] = useState<LetterTile[] | null>(null);
@@ -270,15 +270,15 @@ export function GameScreen({ mode }: { mode: GameMode }) {
   const keyboardInset = useKeyboardInset(Boolean(run));
 
   useEffect(() => {
-    if (!ready) return;
-    if (!profile) {
+    if (!ready || gate === "checking") return;
+    if (gate === "out" || !profile) {
       router.replace("/");
       return;
     }
     setRun(createRun(mode, profile));
     // Score updates must not restart the expedition.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [ready, mode, router]);
+  }, [ready, gate, mode, router]);
 
   useEffect(() => {
     if (!run) return;

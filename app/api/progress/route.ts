@@ -1,59 +1,79 @@
-import { isMode } from "@/lib/boards";
-import { saveProgress } from "@/lib/db";
-import { cleanNickname, knownCountry, normalizeCode, type Outcome } from "@/lib/profile";
+import { connection } from "next/server";
+import { isMode, isPlayBoard } from "@/lib/boards";
+import { findPlayerById, saveProgress } from "@/lib/db";
+import { knownCountry, type Outcome } from "@/lib/profile";
+import { readSession } from "@/lib/session";
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const OUTCOMES: Outcome[] = ["correct", "miss", "near", "skip", "hint"];
 
+function count(value: unknown, max: number) {
+  if (typeof value !== "number" || !Number.isInteger(value) || value < 0 || value > max) return null;
+  return value;
+}
+
 export async function POST(request: Request) {
+  await connection();
+  const session = await readSession();
+  if (!session) return Response.json({ error: "Sign in with Google." }, { status: 401 });
+  const player = await findPlayerById(session.pid);
+  if (!player?.player || player.player.googleSub !== session.sub) {
+    return Response.json({ error: "Sign in with Google." }, { status: 401 });
+  }
+
   const body = (await request.json().catch(() => null)) as {
-    playerId?: string;
-    nickname?: string;
-    recoveryCode?: string;
-    iso?: string;
+    iso?: unknown;
     outcome?: Outcome;
-    mode?: string;
-    board?: string;
-    streak?: number;
-    runId?: string;
-    durationMs?: number;
-    completed?: boolean;
+    mode?: unknown;
+    board?: unknown;
+    streak?: unknown;
+    runId?: unknown;
+    durationMs?: unknown;
+    completed?: unknown;
+    correct?: unknown;
+    miss?: unknown;
+    nearMiss?: unknown;
+    struggle?: unknown;
   } | null;
 
-  const nickname = cleanNickname(body?.nickname ?? "");
-  const recoveryCode = normalizeCode(body?.recoveryCode ?? "");
+  const correct = count(body?.correct, 10000);
+  const miss = count(body?.miss, 10000);
+  const nearMiss = count(body?.nearMiss, 10000);
+  const struggle = count(body?.struggle, 100000);
+  const streak = count(body?.streak, 300);
   if (
-    !body?.playerId ||
-    !UUID.test(body.playerId) ||
-    !body.runId ||
-    !UUID.test(body.runId) ||
-    !nickname ||
-    !/^[A-Z0-9]{6}$/.test(recoveryCode) ||
-    !body.iso ||
+    !body ||
+    typeof body.iso !== "string" ||
     !knownCountry(body.iso) ||
     !body.outcome ||
     !OUTCOMES.includes(body.outcome) ||
-    !body.mode ||
+    typeof body.mode !== "string" ||
     !isMode(body.mode) ||
-    !body.board ||
-    typeof body.streak !== "number" ||
-    body.streak < 0 ||
-    body.streak > 300
+    typeof body.board !== "string" ||
+    !isPlayBoard(body.board) ||
+    typeof body.runId !== "string" ||
+    !UUID.test(body.runId) ||
+    correct == null ||
+    miss == null ||
+    nearMiss == null ||
+    struggle == null ||
+    streak == null
   ) {
     return Response.json({ error: "That score could not be saved." }, { status: 400 });
   }
 
   const saved = await saveProgress({
-    playerId: body.playerId,
-    nickname,
-    recoveryCode,
+    playerId: session.pid,
     iso: body.iso,
-    outcome: body.outcome,
+    correct,
+    miss,
+    nearMiss,
+    struggle,
     mode: body.mode,
     board: "world",
-    streak: Math.floor(body.streak),
+    streak,
     runId: body.runId,
-    durationMs: Math.max(0, Math.floor(body.durationMs ?? 0)),
+    durationMs: Math.max(0, Math.floor(typeof body.durationMs === "number" ? body.durationMs : 0)),
     completed: Boolean(body.completed),
   });
 
