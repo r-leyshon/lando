@@ -26,7 +26,7 @@ export const viewport: Viewport = {
   themeColor: "#79c3de",
   width: "device-width",
   initialScale: 1,
-  interactiveWidget: "resizes-content",
+  interactiveWidget: "overlays-content",
 };
 
 export default function RootLayout({ children }: LayoutProps<"/">) {

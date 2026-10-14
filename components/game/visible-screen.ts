@@ -1,4 +1,4 @@
-import { useEffect, useRef, type RefObject } from "react";
+import { useEffect, useState } from "react";
 
 /** Slide the answer into the bottom sheet without scrolling the page. */
 export function revealAnswer(input: HTMLInputElement | null, sheet: HTMLElement | null) {
@@ -14,51 +14,72 @@ export function revealAnswer(input: HTMLInputElement | null, sheet: HTMLElement 
   }
 }
 
+type VirtualKeyboard = {
+  overlaysContent: boolean;
+  boundingRect: DOMRect;
+  addEventListener(type: "geometrychange", listener: () => void): void;
+  removeEventListener(type: "geometrychange", listener: () => void): void;
+};
+
+function virtualKeyboard() {
+  return (navigator as Navigator & { virtualKeyboard?: VirtualKeyboard }).virtualKeyboard;
+}
+
 /**
- * Size a fixed game screen to the visible area above the phone keyboard.
- * Android otherwise scrolls the focused field up and pushes the flag off screen.
+ * How much of the bottom of the screen the keyboard is covering.
+ * The game stays full size; the keyboard draws on top.
  */
-export function useVisibleScreen(
-  ref: RefObject<HTMLElement | null>,
-  active: boolean,
-  onFit?: () => void,
-) {
-  const onFitRef = useRef(onFit);
-  onFitRef.current = onFit;
+export function useKeyboardInset(active: boolean) {
+  const [inset, setInset] = useState(0);
 
   useEffect(() => {
-    const el = ref.current;
-    const viewport = window.visualViewport;
-    if (!active || !el || !viewport) return;
-
+    if (!active) return;
     const html = document.documentElement;
     const previousOverflow = html.style.overflow;
     html.style.overflow = "hidden";
+    const keyboard = virtualKeyboard();
+    if (keyboard) keyboard.overlaysContent = true;
 
     let frame = 0;
-    const fit = () => {
+    const measure = () => {
       cancelAnimationFrame(frame);
       frame = requestAnimationFrame(() => {
-        el.style.height = `${viewport.height}px`;
-        el.style.transform = viewport.offsetTop ? `translateY(${viewport.offsetTop}px)` : "";
-        el.dataset.tight = viewport.height < 640 ? "true" : "false";
-        onFitRef.current?.();
+        const viewport = window.visualViewport;
+        const fromViewport = viewport ? window.innerHeight - viewport.height - viewport.offsetTop : 0;
+        const rect = keyboard?.boundingRect;
+        const fromKeyboard = rect && rect.height > 0 ? window.innerHeight - rect.top : 0;
+        const next = Math.max(0, fromViewport, fromKeyboard);
+        const rounded = next > 72 ? Math.round(next) : 0;
+        setInset((current) => (current === rounded ? current : rounded));
+        if (window.scrollY !== 0) window.scrollTo(0, 0);
       });
     };
 
-    fit();
-    viewport.addEventListener("resize", fit);
-    viewport.addEventListener("scroll", fit);
-    window.addEventListener("resize", fit);
+    measure();
+    const viewport = window.visualViewport;
+    viewport?.addEventListener("resize", measure);
+    viewport?.addEventListener("scroll", measure);
+    keyboard?.addEventListener("geometrychange", measure);
+    window.addEventListener("resize", measure);
     return () => {
       cancelAnimationFrame(frame);
-      viewport.removeEventListener("resize", fit);
-      viewport.removeEventListener("scroll", fit);
-      window.removeEventListener("resize", fit);
-      el.style.height = "";
-      el.style.transform = "";
-      delete el.dataset.tight;
+      viewport?.removeEventListener("resize", measure);
+      viewport?.removeEventListener("scroll", measure);
+      keyboard?.removeEventListener("geometrychange", measure);
+      window.removeEventListener("resize", measure);
+      if (keyboard) keyboard.overlaysContent = false;
       html.style.overflow = previousOverflow;
     };
-  }, [active, ref]);
+  }, [active]);
+
+  return inset;
+}
+
+/** How tall Lando's panel may be: a short tab, or tall enough to leave some of the picture. */
+export function sheetLimits(stageHeight: number, keyboardInset: number) {
+  const room = Math.max(0, stageHeight - keyboardInset);
+  const min = Math.min(156, Math.max(88, room));
+  const peek = Math.max(136, Math.round(room * 0.28));
+  const max = Math.max(min, room - peek);
+  return { min, max: Math.min(max, room) };
 }
