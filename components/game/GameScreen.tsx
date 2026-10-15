@@ -104,10 +104,18 @@ function loadSaved(mode: GameMode) {
   try {
     return JSON.parse(raw) as Pick<RunState, "runId" | "startedAt" | "streak" | "best" | "stamped"> & {
       continent?: ContinentId | null;
+      replay?: boolean;
     };
   } catch {
     return null;
   }
+}
+
+function stampsFromBook(profile: Profile | null) {
+  if (!profile) return [];
+  return quizCountries
+    .filter((country) => (profile.stats[country.iso2]?.correct ?? 0) > 0)
+    .map((country) => country.iso2);
 }
 
 function freshRun(): Pick<RunState, "runId" | "startedAt" | "streak" | "best" | "stamped"> {
@@ -177,9 +185,11 @@ function beginContinent(current: RunState, mode: GameMode, id: ContinentId, play
   return nextQuestion(next, mode, null);
 }
 
-function createRun(mode: GameMode, profile: Profile | null): RunState {
-  const saved = loadSaved(mode);
-  const base = saved ?? freshRun();
+function createRun(mode: GameMode, profile: Profile | null, fresh = false): RunState {
+  const saved = fresh ? null : loadSaved(mode);
+  const carried = fresh || saved?.replay ? [] : stampsFromBook(profile);
+  const stamped = [...new Set([...(saved?.stamped ?? []), ...carried])];
+  const base = saved ? { ...saved, stamped } : { ...freshRun(), stamped };
   const continent = saved?.continent && isContinent(saved.continent) ? saved.continent : null;
   const player = nick(profile);
   const shell: RunState = {
@@ -264,6 +274,7 @@ export function GameScreen({ mode }: { mode: GameMode }) {
   const sheetRef = useRef<HTMLElement>(null);
   const sheetBodyRef = useRef<HTMLDivElement>(null);
   const draggedSheet = useRef(false);
+  const replay = useRef(false);
   const sheetPlace = useRef<string | null>(null);
   const sheetDrag = useRef<{ id: number; startY: number; startH: number } | null>(null);
   const [draggingSheet, setDraggingSheet] = useState(false);
@@ -276,6 +287,7 @@ export function GameScreen({ mode }: { mode: GameMode }) {
       router.replace("/");
       return;
     }
+    replay.current = loadSaved(mode)?.replay ?? false;
     setRun(createRun(mode, profile));
     // Score updates must not restart the expedition.
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -292,6 +304,7 @@ export function GameScreen({ mode }: { mode: GameMode }) {
         best: run.best,
         stamped: run.stamped,
         continent: run.continent,
+        replay: replay.current,
       }),
     );
   }, [mode, run]);
@@ -943,9 +956,10 @@ export function GameScreen({ mode }: { mode: GameMode }) {
   );
 
   function resetRun() {
+    replay.current = true;
     window.sessionStorage.removeItem(runKey(mode));
     setConfirmReset(false);
-    setRun(createRun(mode, profileRef.current));
+    setRun(createRun(mode, profileRef.current, true));
   }
 }
 
