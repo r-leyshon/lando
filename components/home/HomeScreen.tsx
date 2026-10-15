@@ -7,13 +7,14 @@ import { Lando, Speech } from "@/components/lando/Lando";
 import { usePlayer } from "@/components/player/PlayerProvider";
 import { MODE_LABELS, type GameMode } from "@/lib/boards";
 import { quizCountries } from "@/lib/countries";
-import { bestStreak, passportCount } from "@/lib/profile";
+import { bestStreak, caughtCount, stampsFor } from "@/lib/profile";
 
 const GAMES: { mode: GameMode; detail: string }[] = [
   { mode: "name", detail: "Tap a country, then tell me its name." },
   { mode: "where", detail: "I say a country. You tap it on the map." },
   { mode: "silhouette", detail: "Look at the shape, then tell me the country's name." },
   { mode: "flag", detail: "I show a flag. You type the country's name." },
+  { mode: "capital", detail: "I show a country and a flashing dot. You type the city." },
   { mode: "practice", detail: "Have another go at the countries you found hard." },
 ];
 
@@ -72,8 +73,6 @@ export function HomeScreen() {
     );
   }
 
-  const stamps = passportCount(profile);
-
   return (
     <main className="mx-auto flex min-h-dvh max-w-3xl flex-col bg-sea">
       <header className="safe-top flex items-center justify-between gap-3 px-4 pt-4">
@@ -101,9 +100,10 @@ export function HomeScreen() {
           <Lando mood="wave" className="h-24 shrink-0" />
           <Speech>{`What shall we play, ${profile.nickname}?`}</Speech>
         </div>
-        <p className="mt-3 font-extrabold">
-          Stamps {stamps} of {quizCountries.length}
-        </p>
+        <Link href="/dex" className="chunky mt-3 block bg-sand px-4 py-3">
+          <span className="block text-lg font-extrabold">Country dex</span>
+          <span className="block font-bold">Caught {caughtCount(profile)} of {quizCountries.length}</span>
+        </Link>
       </div>
 
       <section className="grid flex-1 gap-3 px-4 py-4">
@@ -112,6 +112,8 @@ export function HomeScreen() {
             <span className="block text-xl font-extrabold">{MODE_LABELS[game.mode]}</span>
             <span className="mt-1 block font-bold text-ink/80">{game.detail}</span>
             <span className="mt-2 block text-sm font-extrabold text-leaf">
+              Stamps {stampsFor(profile, game.mode).length} of {quizCountries.length}
+              {" · "}
               Best streak {bestStreak(profile, game.mode)}
             </span>
           </Link>

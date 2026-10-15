@@ -40,11 +40,18 @@ export async function POST(request: Request) {
   }
   const snapshot = parseSnapshot(await request.json().catch(() => null));
   const remote = toProfile(found);
-  if (!snapshotAhead({ ...remote, stats: snapshot.stats, bestStreaks: snapshot.bestStreaks }, remote)) {
+  const posted = {
+    ...remote,
+    stats: snapshot.stats,
+    bestStreaks: snapshot.bestStreaks,
+    stamps: snapshot.stamps,
+    stampRevision: snapshot.stampRevision,
+  };
+  if (!snapshotAhead(posted, remote)) {
     return Response.json(remote);
   }
-  const merged = mergeProfiles({ ...remote, stats: snapshot.stats, bestStreaks: snapshot.bestStreaks }, remote);
-  await saveSnapshot(session.pid, merged.stats, merged.bestStreaks);
+  const merged = mergeProfiles(posted, remote);
+  await saveSnapshot(session.pid, merged.stats, merged.bestStreaks, merged.stamps, merged.stampRevision);
   await renameLinkedPlayer(session.pid, session.sub, remote.nickname);
   const fresh = await findPlayerById(session.pid);
   return Response.json(fresh ? toProfile(fresh) : merged);

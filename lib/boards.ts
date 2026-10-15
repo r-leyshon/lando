@@ -15,8 +15,20 @@ export type ContinentId = (typeof CONTINENTS)[number];
 
 export const PLAY_BOARDS = [...CONTINENTS, "world"] as const satisfies readonly BoardId[];
 
-export const MODES = ["name", "where", "silhouette", "flag", "practice"] as const;
+export const MODES = ["name", "where", "silhouette", "flag", "capital", "practice"] as const;
 export type GameMode = (typeof MODES)[number];
+
+/** The games that fill a country in the dex. Practice does not count. */
+export const DEX_MODES = ["name", "where", "silhouette", "flag", "capital"] as const;
+export type DexMode = (typeof DEX_MODES)[number];
+
+export const DEX_LABELS: Record<DexMode, string> = {
+  name: "Name",
+  where: "Where",
+  silhouette: "Shape",
+  flag: "Flag",
+  capital: "Capital",
+};
 
 export const BOARD_LABELS: Record<BoardId | "tricky", string> = {
   africa: "Africa",
@@ -42,8 +54,9 @@ export const BOARD_COLORS: Record<BoardId, string> = {
 export const MODE_LABELS: Record<GameMode, string> = {
   name: "Name the country",
   where: "Where is…",
-  silhouette: "Name that country",
+  silhouette: "Name the shape",
   flag: "Guess the flag",
+  capital: "Name the capital",
   practice: "Tricky ones",
 };
 
@@ -97,6 +110,10 @@ export function isPlayBoard(value: string): value is BoardId {
 
 export function isMode(value: string): value is GameMode {
   return (MODES as readonly string[]).includes(value);
+}
+
+export function isDexMode(value: string): value is DexMode {
+  return (DEX_MODES as readonly string[]).includes(value);
 }
 
 export function streakKey(mode: GameMode, board: string) {

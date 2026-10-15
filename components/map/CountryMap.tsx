@@ -104,6 +104,7 @@ export function CountryMap({
   selected,
   reveal,
   colorMode,
+  capital = null,
   onPick,
 }: {
   board: BoardId;
@@ -113,6 +114,7 @@ export function CountryMap({
   selected: string | null;
   reveal: string | null;
   colorMode: "hub" | "play";
+  capital?: [number, number] | null;
   onPick: (hit: Hit) => void;
 }) {
   const frame = useRef<HTMLDivElement>(null);
@@ -149,8 +151,8 @@ export function CountryMap({
   spinRef.current = spin;
   centersRef.current = centers;
   spinByKeyRef.current = spinByKey;
-  const styleRef = useRef({ stamped, selected, reveal, colorMode });
-  styleRef.current = { stamped, selected, reveal, colorMode };
+  const styleRef = useRef({ stamped, selected, reveal, colorMode, capital });
+  styleRef.current = { stamped, selected, reveal, colorMode, capital };
 
   function landColor(props: PieceProps) {
     const style = styleRef.current;
@@ -208,7 +210,27 @@ export function CountryMap({
     path({ type: "Sphere" });
     context.clip();
     drawFlagSprites(context, projection);
+    drawCapitalDot(context, projection);
     context.restore();
+  }
+
+  function drawCapitalDot(context: CanvasRenderingContext2D, projection: GeoProjection) {
+    const dot = styleRef.current.capital;
+    if (!dot) return;
+    const point = projection(dot);
+    if (!point) return;
+    const pulse = 0.5 + 0.5 * Math.sin(performance.now() / 160);
+    context.beginPath();
+    context.arc(point[0], point[1], 10 + pulse * 8, 0, Math.PI * 2);
+    context.fillStyle = `rgba(225, 91, 76, ${0.28 + pulse * 0.25})`;
+    context.fill();
+    context.beginPath();
+    context.arc(point[0], point[1], 5.5, 0, Math.PI * 2);
+    context.fillStyle = "#e15b4c";
+    context.strokeStyle = "#2a241b";
+    context.lineWidth = 2;
+    context.fill();
+    context.stroke();
   }
 
   function drawFlagSprites(context: CanvasRenderingContext2D, projection: GeoProjection) {
@@ -364,9 +386,21 @@ export function CountryMap({
   }, [board]);
 
   const stampKey = [...stamped].join(",");
+  const capitalKey = capital ? `${capital[0]},${capital[1]}` : "";
   useLayoutEffect(() => {
     paint();
-  }, [board, colorMode, reveal, selected, stampKey]);
+  }, [board, colorMode, reveal, selected, stampKey, capitalKey]);
+
+  useEffect(() => {
+    if (!capital) return;
+    let frame = 0;
+    const loop = () => {
+      paint();
+      frame = window.requestAnimationFrame(loop);
+    };
+    frame = window.requestAnimationFrame(loop);
+    return () => window.cancelAnimationFrame(frame);
+  }, [capitalKey]);
 
   useEffect(() => {
     const element = frame.current;

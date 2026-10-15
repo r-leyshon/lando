@@ -1,5 +1,5 @@
 import { countries, countryByIso, quizCountries, type Country } from "@/lib/countries";
-import { isMode, isPlayBoard, streakKey, type GameMode } from "@/lib/boards";
+import { DEX_MODES, isDexMode, isMode, isPlayBoard, streakKey, type DexMode, type GameMode } from "@/lib/boards";
 
 export type Outcome = "correct" | "miss" | "near" | "skip" | "hint";
 
@@ -8,7 +8,12 @@ export type CountryStat = {
   miss: number;
   nearMiss: number;
   struggle: number;
+  /** Games in which this country has been answered correctly. */
+  found?: DexMode[];
 };
+
+/** Green countries on one game's map. The country dex stays in `found`. */
+export type StampBook = Partial<Record<GameMode, string[]>>;
 
 export type Profile = {
   id: string;
@@ -18,6 +23,8 @@ export type Profile = {
   seenCode: boolean;
   stats: Record<string, CountryStat>;
   bestStreaks: Record<string, number>;
+  stamps: StampBook;
+  stampRevision: number;
 };
 
 const STORAGE_KEY = "lando-profile-v1";
@@ -54,6 +61,8 @@ export function createProfile(nickname: string): Profile {
     seenCode: false,
     stats: {},
     bestStreaks: {},
+    stamps: {},
+    stampRevision: 0,
   };
 }
 
@@ -64,12 +73,17 @@ export function loadProfile(): Profile | null {
   try {
     const parsed = JSON.parse(raw) as Profile;
     if (!parsed?.id || !parsed.nickname || !parsed.recoveryCode) return null;
+    const stats = tidyStats(parsed.stats);
+    const seeded = parsed.stamps == null ? stampsFromFound(stats) : null;
+    const hasSeed = seeded != null && Object.values(seeded).some((isos) => isos.length > 0);
     return {
       ...parsed,
       muted: Boolean(parsed.muted),
       seenCode: Boolean(parsed.seenCode),
-      stats: parsed.stats ?? {},
+      stats,
       bestStreaks: parsed.bestStreaks ?? {},
+      stamps: seeded ?? tidyStamps(parsed.stamps),
+      stampRevision: seeded ? (hasSeed ? 1 : 0) : revisionOf(parsed.stampRevision),
     };
   } catch {
     return null;
@@ -82,7 +96,44 @@ export function saveProfile(profile: Profile) {
 }
 
 function blankStat(): CountryStat {
-  return { correct: 0, miss: 0, nearMiss: 0, struggle: 0 };
+  return { correct: 0, miss: 0, nearMiss: 0, struggle: 0, found: [] };
+}
+
+/** Keep only the dex games, in a stable order. */
+export function dexModes(value: unknown): DexMode[] {
+  if (!Array.isArray(value)) return [];
+  const found: DexMode[] = [];
+  for (const item of value) {
+    if (typeof item === "string" && isDexMode(item) && !found.includes(item)) found.push(item);
+  }
+  return found;
+}
+
+function tidyStats(value: unknown): Record<string, CountryStat> {
+  if (!value || typeof value !== "object") return {};
+  const stats: Record<string, CountryStat> = {};
+  for (const [iso, raw] of Object.entries(value)) {
+    if (!raw || typeof raw !== "object") continue;
+    const row = raw as Partial<CountryStat>;
+    if (typeof row.correct !== "number") continue;
+    stats[iso] = {
+      correct: row.correct,
+      miss: typeof row.miss === "number" ? row.miss : 0,
+      nearMiss: typeof row.nearMiss === "number" ? row.nearMiss : 0,
+      struggle: typeof row.struggle === "number" ? row.struggle : 0,
+      found: dexModes(row.found),
+    };
+  }
+  return stats;
+}
+
+export function dexComplete(stat: CountryStat | undefined) {
+  const found = dexModes(stat?.found);
+  return DEX_MODES.every((mode) => found.includes(mode));
+}
+
+export function caughtCount(profile: Profile) {
+  return quizCountries.filter((country) => dexComplete(profile.stats[country.iso2])).length;
 }
 
 export function applyOutcome(
@@ -93,6 +144,11 @@ export function applyOutcome(
   const struggleDelta =
     input.outcome === "miss" ? 3 : input.outcome === "correct" ? -2 : 1;
   const struggle = Math.max(0, current.struggle + struggleDelta);
+  const found = dexModes(current.found);
+  const nextFound =
+    input.outcome === "correct" && isDexMode(input.mode) && !found.includes(input.mode)
+      ? [...found, input.mode]
+      : found;
   const stats = {
     ...profile.stats,
     [input.iso]: {
@@ -100,6 +156,7 @@ export function applyOutcome(
       miss: current.miss + (input.outcome === "miss" ? 1 : 0),
       nearMiss: current.nearMiss + (input.outcome === "near" || input.outcome === "skip" ? 1 : 0),
       struggle,
+      found: nextFound,
     },
   };
   const key = streakKey(input.mode, "world");
@@ -107,7 +164,50 @@ export function applyOutcome(
     ...profile.bestStreaks,
     [key]: Math.max(profile.bestStreaks[key] ?? 0, input.streak),
   };
-  return { ...profile, stats, bestStreaks };
+  const book = tidyStamps(profile.stamps);
+  const already = book[input.mode] ?? [];
+  const earned = input.outcome === "correct" && !already.includes(input.iso);
+  const stamps = earned ? { ...book, [input.mode]: [...already, input.iso] } : book;
+  const stampRevision = earned ? profile.stampRevision + 1 : profile.stampRevision;
+  return { ...profile, stats, bestStreaks, stamps, stampRevision };
+}
+
+export function stampsFor(profile: Profile | null, mode: GameMode) {
+  return profile?.stamps?.[mode] ?? [];
+}
+
+/** Blank one game's map. Other games, and the country dex, stay as they are. */
+export function clearGameStamps(profile: Profile, mode: GameMode): Profile {
+  return {
+    ...profile,
+    stamps: { ...tidyStamps(profile.stamps), [mode]: [] },
+    stampRevision: profile.stampRevision + 1,
+  };
+}
+
+export function revisionOf(value: unknown) {
+  if (typeof value !== "number" || !Number.isInteger(value) || value < 0 || value > 1_000_000_000) return 0;
+  return value;
+}
+
+export function tidyStamps(value: unknown): StampBook {
+  const stamps: StampBook = {};
+  if (!value || typeof value !== "object") return stamps;
+  for (const [mode, raw] of Object.entries(value)) {
+    if (!isMode(mode) || !Array.isArray(raw)) continue;
+    stamps[mode] = [...new Set(raw.filter((iso): iso is string => typeof iso === "string" && knownCountry(iso)))];
+  }
+  return stamps;
+}
+
+function stampsFromFound(stats: Record<string, CountryStat>): StampBook {
+  const stamps: StampBook = {};
+  for (const mode of DEX_MODES) {
+    stamps[mode] = Object.entries(stats)
+      .filter(([, stat]) => dexModes(stat.found).includes(mode))
+      .map(([iso]) => iso);
+  }
+  return stamps;
 }
 
 export function passportCount(profile: Profile) {
@@ -180,8 +280,8 @@ function count(value: unknown, max: number) {
 export function parseSnapshot(value: unknown) {
   const stats: Record<string, CountryStat> = {};
   const bestStreaks: Record<string, number> = {};
-  if (!value || typeof value !== "object") return { stats, bestStreaks };
-  const body = value as { stats?: unknown; bestStreaks?: unknown };
+  if (!value || typeof value !== "object") return { stats, bestStreaks, stamps: {}, stampRevision: 0 };
+  const body = value as { stats?: unknown; bestStreaks?: unknown; stamps?: unknown; stampRevision?: unknown };
   if (body.stats && typeof body.stats === "object") {
     for (const [iso, raw] of Object.entries(body.stats)) {
       if (!knownCountry(iso) || !raw || typeof raw !== "object") continue;
@@ -191,7 +291,7 @@ export function parseSnapshot(value: unknown) {
       const nearMiss = count(row.nearMiss, 10000);
       const struggle = count(row.struggle, 100000);
       if (correct == null || miss == null || nearMiss == null || struggle == null) continue;
-      stats[iso] = { correct, miss, nearMiss, struggle };
+      stats[iso] = { correct, miss, nearMiss, struggle, found: dexModes(row.found) };
     }
   }
   if (body.bestStreaks && typeof body.bestStreaks === "object") {
@@ -203,7 +303,7 @@ export function parseSnapshot(value: unknown) {
       bestStreaks[key] = streak;
     }
   }
-  return { stats, bestStreaks };
+  return { stats, bestStreaks, stamps: tidyStamps(body.stamps), stampRevision: revisionOf(body.stampRevision) };
 }
 
 function played(stat: CountryStat) {
@@ -219,20 +319,26 @@ export function mergeProfiles(local: Profile | null, remote: Profile): Profile {
     const there = remote.stats[iso];
     if (!here || !there) {
       const kept = here ?? there;
-      if (kept) stats[iso] = kept;
+      if (kept) stats[iso] = { ...kept, found: dexModes(kept.found) };
       continue;
     }
+    const found = dexModes([...dexModes(here.found), ...dexModes(there.found)]);
     stats[iso] = {
       correct: Math.max(here.correct, there.correct),
       miss: Math.max(here.miss, there.miss),
       nearMiss: Math.max(here.nearMiss, there.nearMiss),
       struggle: played(here) >= played(there) ? here.struggle : there.struggle,
+      found,
     };
   }
   const bestStreaks: Record<string, number> = { ...remote.bestStreaks };
   for (const [key, value] of Object.entries(local?.bestStreaks ?? {})) {
     bestStreaks[key] = Math.max(bestStreaks[key] ?? 0, value);
   }
+  const localRevision = local?.stampRevision ?? 0;
+  const remoteRevision = remote.stampRevision ?? 0;
+  const stamps = mergeStamps(local, remote, localRevision, remoteRevision);
+  const grew = local != null && localRevision === remoteRevision && stampBookGrew(stamps, remote.stamps);
   return {
     id: remote.id,
     nickname: remote.nickname,
@@ -241,7 +347,30 @@ export function mergeProfiles(local: Profile | null, remote: Profile): Profile {
     seenCode: true,
     stats,
     bestStreaks,
+    stamps,
+    stampRevision: Math.max(localRevision, remoteRevision) + (grew ? 1 : 0),
   };
+}
+
+function stampBookGrew(next: StampBook, previous: StampBook | undefined) {
+  for (const [mode, isos] of Object.entries(next)) {
+    if (!isMode(mode)) continue;
+    const other = new Set(previous?.[mode] ?? []);
+    if ((isos ?? []).some((iso) => !other.has(iso))) return true;
+  }
+  return false;
+}
+
+function mergeStamps(local: Profile | null, remote: Profile, localRevision: number, remoteRevision: number): StampBook {
+  if (local && localRevision > remoteRevision) return tidyStamps(local.stamps);
+  if (!local || remoteRevision > localRevision) return tidyStamps(remote.stamps);
+  const stamps: StampBook = {};
+  const modes = new Set([...Object.keys(local.stamps ?? {}), ...Object.keys(remote.stamps ?? {})]);
+  for (const mode of modes) {
+    if (!isMode(mode)) continue;
+    stamps[mode] = [...new Set([...(local.stamps?.[mode] ?? []), ...(remote.stamps?.[mode] ?? [])])];
+  }
+  return stamps;
 }
 
 export function snapshotAhead(local: Profile | null, remote: Profile) {
@@ -251,9 +380,18 @@ export function snapshotAhead(local: Profile | null, remote: Profile) {
     if (!other) return true;
     if (stat.correct > other.correct || stat.miss > other.miss || stat.nearMiss > other.nearMiss) return true;
     if (played(stat) > played(other)) return true;
+    if (dexModes(stat.found).some((mode) => !dexModes(other.found).includes(mode))) return true;
   }
   for (const [key, value] of Object.entries(local.bestStreaks)) {
     if (value > (remote.bestStreaks[key] ?? 0)) return true;
+  }
+  if (local.stampRevision > remote.stampRevision) return true;
+  if (local.stampRevision === remote.stampRevision) {
+    for (const [mode, isos] of Object.entries(local.stamps)) {
+      if (!isMode(mode)) continue;
+      const other = new Set(remote.stamps[mode] ?? []);
+      if (isos.some((iso) => !other.has(iso))) return true;
+    }
   }
   return false;
 }

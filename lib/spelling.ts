@@ -98,7 +98,7 @@ export function spellingTarget(guess: string, country: Country) {
 export type Judgement =
   | { kind: "correct" }
   | { kind: "hint"; message: string }
-  | { kind: "mixup"; message: string }
+  | { kind: "mixup"; message: string; costsTry?: boolean }
   | { kind: "near"; form: string; display: string }
   | { kind: "wrong" };
 
@@ -225,4 +225,53 @@ export function judgeGuess(raw: string, country: Country, all: Country[]): Judge
   }
 
   return { kind: "near", form: best.form, display: best.display };
+}
+
+type NamedPlace = { name: string; aliases: string[] };
+
+function placeForms(place: NamedPlace) {
+  return [normalizeName(place.name), ...place.aliases.map((alias) => normalizeName(alias))].filter(Boolean);
+}
+
+function placeMatch(guess: string, place: NamedPlace) {
+  const wanted = new Set(placeForms(place).flatMap((form) => [...articleForms(form)]));
+  for (const form of articleForms(guess)) {
+    if (wanted.has(form)) return true;
+  }
+  return false;
+}
+
+/** Judge a capital. Typing the country name is a free nudge. Another city's capital costs a try. */
+export function judgePlace(
+  raw: string,
+  place: NamedPlace,
+  countryName: string,
+  others: { place: NamedPlace; country: string }[],
+): Judgement {
+  const guess = normalizeName(raw);
+  if (!guess) return { kind: "wrong" };
+  if (placeMatch(guess, place)) return { kind: "correct" };
+  if (placeMatch(guess, { name: countryName, aliases: [] }) && normalizeName(countryName) !== normalizeName(place.name)) {
+    return { kind: "mixup", message: "That's the country. Type the city." };
+  }
+  const other = others.find((item) => placeMatch(guess, item.place));
+  if (other) return { kind: "mixup", message: `That's the capital of ${other.country}.`, costsTry: true };
+
+  const targets = [place.name, ...place.aliases].map((name) => ({ form: normalizeName(name), display: name }));
+  let best: { distance: number; form: string; display: string } | null = null;
+  for (const target of targets) {
+    if (!target.form) continue;
+    const distance = damerauLevenshtein(guess, target.form);
+    if (!best || distance < best.distance) best = { distance, ...target };
+  }
+  if (!best) return { kind: "wrong" };
+  const limit = best.form.length <= 7 ? 1 : 2;
+  const lengthOk = Math.abs(guess.length - best.form.length) <= 1;
+  if (!lengthOk || best.distance === 0 || best.distance > limit) return { kind: "wrong" };
+  for (const item of others) {
+    for (const form of placeForms(item.place)) {
+      if (damerauLevenshtein(guess, form) <= best.distance) return { kind: "wrong" };
+    }
+  }
+  return { kind: "near", form: best.form, display: place.name };
 }

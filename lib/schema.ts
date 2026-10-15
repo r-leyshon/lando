@@ -5,6 +5,8 @@ export const players = pgTable("players", {
   nickname: text("nickname").notNull(),
   recoveryCode: text("recovery_code").notNull().unique(),
   googleSub: text("google_sub").unique(),
+  gameStamps: text("game_stamps").notNull().default("{}"),
+  stampRevision: integer("stamp_revision").notNull().default(0),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
 
@@ -19,6 +21,11 @@ export const countryStats = pgTable(
     missCount: integer("miss_count").notNull().default(0),
     nearMissCount: integer("near_miss_count").notNull().default(0),
     struggleScore: integer("struggle_score").notNull().default(0),
+    foundName: boolean("found_name").notNull().default(false),
+    foundWhere: boolean("found_where").notNull().default(false),
+    foundShape: boolean("found_shape").notNull().default(false),
+    foundFlag: boolean("found_flag").notNull().default(false),
+    foundCapital: boolean("found_capital").notNull().default(false),
   },
   (table) => [primaryKey({ columns: [table.playerId, table.countryIso] })],
 );

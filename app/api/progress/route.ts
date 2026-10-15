@@ -1,7 +1,7 @@
 import { connection } from "next/server";
 import { isMode, isPlayBoard } from "@/lib/boards";
 import { findPlayerById, saveProgress } from "@/lib/db";
-import { knownCountry, type Outcome } from "@/lib/profile";
+import { dexModes, knownCountry, revisionOf, tidyStamps, type Outcome } from "@/lib/profile";
 import { readSession } from "@/lib/session";
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -34,6 +34,9 @@ export async function POST(request: Request) {
     miss?: unknown;
     nearMiss?: unknown;
     struggle?: unknown;
+    found?: unknown;
+    stamps?: unknown;
+    stampRevision?: unknown;
   } | null;
 
   const correct = count(body?.correct, 10000);
@@ -69,12 +72,15 @@ export async function POST(request: Request) {
     miss,
     nearMiss,
     struggle,
+    found: dexModes(body.found),
     mode: body.mode,
     board: "world",
     streak,
     runId: body.runId,
     durationMs: Math.max(0, Math.floor(typeof body.durationMs === "number" ? body.durationMs : 0)),
     completed: Boolean(body.completed),
+    stamps: body.stamps == null ? undefined : tidyStamps(body.stamps),
+    stampRevision: body.stampRevision == null ? undefined : revisionOf(body.stampRevision),
   });
 
   return Response.json({ database: saved, stored: saved ? "cloud" : "local" });

@@ -3,8 +3,8 @@ import { neon } from "@neondatabase/serverless";
 import { and, desc, eq, max } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/neon-http";
 import { countryStats, players, runs } from "@/lib/schema";
-import { isMode, isPlayBoard } from "@/lib/boards";
-import type { CountryStat, Profile } from "@/lib/profile";
+import { isMode, isPlayBoard, type DexMode } from "@/lib/boards";
+import { dexModes, revisionOf, tidyStamps, type CountryStat, type Profile, type StampBook } from "@/lib/profile";
 
 let ready: Promise<ReturnType<typeof drizzle> | null> | null = null;
 
@@ -59,6 +59,13 @@ async function connect() {
   await sql`CREATE INDEX IF NOT EXISTS runs_leaderboard ON runs (mode, board, best_streak DESC)`;
   await sql`ALTER TABLE players ADD COLUMN IF NOT EXISTS google_sub text`;
   await sql`CREATE UNIQUE INDEX IF NOT EXISTS players_google_sub_key ON players (google_sub)`;
+  await sql`ALTER TABLE country_stats ADD COLUMN IF NOT EXISTS found_name boolean NOT NULL DEFAULT false`;
+  await sql`ALTER TABLE country_stats ADD COLUMN IF NOT EXISTS found_where boolean NOT NULL DEFAULT false`;
+  await sql`ALTER TABLE country_stats ADD COLUMN IF NOT EXISTS found_shape boolean NOT NULL DEFAULT false`;
+  await sql`ALTER TABLE country_stats ADD COLUMN IF NOT EXISTS found_flag boolean NOT NULL DEFAULT false`;
+  await sql`ALTER TABLE country_stats ADD COLUMN IF NOT EXISTS found_capital boolean NOT NULL DEFAULT false`;
+  await sql`ALTER TABLE players ADD COLUMN IF NOT EXISTS game_stamps text NOT NULL DEFAULT '{}'`;
+  await sql`ALTER TABLE players ADD COLUMN IF NOT EXISTS stamp_revision integer NOT NULL DEFAULT 0`;
   return drizzle(neon(url));
 }
 
@@ -124,6 +131,33 @@ export async function findPlayerByGoogleSub(googleSub: string) {
   return playerBundle(player.id);
 }
 
+function foundFlags(found: DexMode[] | undefined) {
+  const modes = new Set(dexModes(found));
+  return {
+    name: modes.has("name"),
+    where: modes.has("where"),
+    shape: modes.has("silhouette"),
+    flag: modes.has("flag"),
+    capital: modes.has("capital"),
+  };
+}
+
+function foundFromRow(row: {
+  foundName: boolean;
+  foundWhere: boolean;
+  foundShape: boolean;
+  foundFlag: boolean;
+  foundCapital: boolean;
+}): DexMode[] {
+  const found: DexMode[] = [];
+  if (row.foundName) found.push("name");
+  if (row.foundWhere) found.push("where");
+  if (row.foundShape) found.push("silhouette");
+  if (row.foundFlag) found.push("flag");
+  if (row.foundCapital) found.push("capital");
+  return found;
+}
+
 export function toProfile(found: NonNullable<Awaited<ReturnType<typeof findPlayerByCode>>>): Profile {
   const stats: Record<string, CountryStat> = {};
   for (const row of found.stats) {
@@ -132,6 +166,7 @@ export function toProfile(found: NonNullable<Awaited<ReturnType<typeof findPlaye
       miss: row.missCount,
       nearMiss: row.nearMissCount,
       struggle: row.struggleScore,
+      found: foundFromRow(row),
     };
   }
   const bestStreaks: Record<string, number> = {};
@@ -147,7 +182,18 @@ export function toProfile(found: NonNullable<Awaited<ReturnType<typeof findPlaye
     seenCode: true,
     stats,
     bestStreaks,
+    stamps: tidyStamps(readStampJson(found.player.gameStamps)),
+    stampRevision: revisionOf(found.player.stampRevision),
   };
+}
+
+function readStampJson(value: string | null | undefined) {
+  if (!value) return {};
+  try {
+    return JSON.parse(value) as unknown;
+  } catch {
+    return {};
+  }
 }
 
 export async function attachGoogle(id: string, googleSub: string, nickname: string) {
@@ -180,13 +226,16 @@ export async function saveSnapshot(
   playerId: string,
   stats: Record<string, CountryStat>,
   bestStreaks: Record<string, number>,
+  stamps: StampBook = {},
+  stampRevision = 0,
 ) {
   if (!(await getDb())) return false;
   const sql = sqlClient();
   if (!sql) return false;
   for (const [iso, stat] of Object.entries(stats)) {
-    await sql`INSERT INTO country_stats (player_id, country_iso, correct_count, miss_count, near_miss_count, struggle_score)
-      VALUES (${playerId}, ${iso}, ${stat.correct}, ${stat.miss}, ${stat.nearMiss}, ${stat.struggle})
+    const found = foundFlags(stat.found);
+    await sql`INSERT INTO country_stats (player_id, country_iso, correct_count, miss_count, near_miss_count, struggle_score, found_name, found_where, found_shape, found_flag, found_capital)
+      VALUES (${playerId}, ${iso}, ${stat.correct}, ${stat.miss}, ${stat.nearMiss}, ${stat.struggle}, ${found.name}, ${found.where}, ${found.shape}, ${found.flag}, ${found.capital})
       ON CONFLICT (player_id, country_iso) DO UPDATE SET
         correct_count = GREATEST(country_stats.correct_count, EXCLUDED.correct_count),
         miss_count = GREATEST(country_stats.miss_count, EXCLUDED.miss_count),
@@ -196,7 +245,12 @@ export async function saveSnapshot(
             >= (country_stats.correct_count + country_stats.miss_count + country_stats.near_miss_count)
           THEN EXCLUDED.struggle_score
           ELSE country_stats.struggle_score
-        END`;
+        END,
+        found_name = country_stats.found_name OR EXCLUDED.found_name,
+        found_where = country_stats.found_where OR EXCLUDED.found_where,
+        found_shape = country_stats.found_shape OR EXCLUDED.found_shape,
+        found_flag = country_stats.found_flag OR EXCLUDED.found_flag,
+        found_capital = country_stats.found_capital OR EXCLUDED.found_capital`;
   }
   for (const [key, streak] of Object.entries(bestStreaks)) {
     const [mode, board] = key.split(":");
@@ -206,6 +260,7 @@ export async function saveSnapshot(
       VALUES (${id}, ${playerId}, ${mode}, ${board}, ${streak}, 0, false)
       ON CONFLICT (id) DO UPDATE SET best_streak = GREATEST(runs.best_streak, EXCLUDED.best_streak)`;
   }
+  await writeStampBook(sql, playerId, stamps, stampRevision);
   return true;
 }
 
@@ -216,18 +271,22 @@ export async function saveProgress(input: {
   miss: number;
   nearMiss: number;
   struggle: number;
+  found: DexMode[];
   mode: string;
   board: string;
   streak: number;
   runId: string;
   durationMs: number;
   completed: boolean;
+  stamps?: StampBook;
+  stampRevision?: number;
 }) {
   if (!(await getDb())) return false;
   const sql = sqlClient();
   if (!sql) return false;
-  await sql`INSERT INTO country_stats (player_id, country_iso, correct_count, miss_count, near_miss_count, struggle_score)
-    VALUES (${input.playerId}, ${input.iso}, ${input.correct}, ${input.miss}, ${input.nearMiss}, ${input.struggle})
+  const found = foundFlags(input.found);
+  await sql`INSERT INTO country_stats (player_id, country_iso, correct_count, miss_count, near_miss_count, struggle_score, found_name, found_where, found_shape, found_flag, found_capital)
+    VALUES (${input.playerId}, ${input.iso}, ${input.correct}, ${input.miss}, ${input.nearMiss}, ${input.struggle}, ${found.name}, ${found.where}, ${found.shape}, ${found.flag}, ${found.capital})
     ON CONFLICT (player_id, country_iso) DO UPDATE SET
       correct_count = GREATEST(country_stats.correct_count, EXCLUDED.correct_count),
       miss_count = GREATEST(country_stats.miss_count, EXCLUDED.miss_count),
@@ -237,14 +296,33 @@ export async function saveProgress(input: {
           >= (country_stats.correct_count + country_stats.miss_count + country_stats.near_miss_count)
         THEN EXCLUDED.struggle_score
         ELSE country_stats.struggle_score
-      END`;
+      END,
+      found_name = country_stats.found_name OR EXCLUDED.found_name,
+      found_where = country_stats.found_where OR EXCLUDED.found_where,
+      found_shape = country_stats.found_shape OR EXCLUDED.found_shape,
+      found_flag = country_stats.found_flag OR EXCLUDED.found_flag,
+      found_capital = country_stats.found_capital OR EXCLUDED.found_capital`;
   await sql`INSERT INTO runs (id, player_id, mode, board, best_streak, duration_ms, completed)
     VALUES (${input.runId}, ${input.playerId}, ${input.mode}, ${input.board}, ${input.streak}, ${input.durationMs}, ${input.completed})
     ON CONFLICT (id) DO UPDATE SET
       best_streak = GREATEST(runs.best_streak, EXCLUDED.best_streak),
       duration_ms = EXCLUDED.duration_ms,
       completed = runs.completed OR EXCLUDED.completed`;
+  if (input.stamps && input.stampRevision != null) {
+    await writeStampBook(sql, input.playerId, input.stamps, input.stampRevision);
+  }
   return true;
+}
+
+function writeStampBook(
+  sql: NonNullable<ReturnType<typeof sqlClient>>,
+  playerId: string,
+  stamps: StampBook,
+  revision: number,
+) {
+  return sql`UPDATE players
+    SET game_stamps = ${JSON.stringify(stamps)}, stamp_revision = ${revision}
+    WHERE id = ${playerId}::uuid AND stamp_revision < ${revision}`;
 }
 
 function stableUuid(seed: string) {

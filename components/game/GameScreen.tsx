@@ -21,9 +21,10 @@ import {
   type GameMode,
 } from "@/lib/boards";
 import { countryByIso, quizCountries, type BoardId, type Country } from "@/lib/countries";
-import { applyOutcome, pickTricky, type Outcome, type Profile } from "@/lib/profile";
+import { applyOutcome, clearGameStamps, pickTricky, stampsFor, type Outcome, type Profile } from "@/lib/profile";
 import { sfx } from "@/lib/sound";
-import { draftTiles, judgeGuess, letterTiles, openHint, spellingTarget, type LetterTile } from "@/lib/spelling";
+import { draftTiles, judgeGuess, judgePlace, letterTiles, openHint, spellingTarget, type LetterTile } from "@/lib/spelling";
+import { capitalOf, everyCapital } from "@/lib/capitals";
 import { countries } from "@/lib/countries";
 import type { LandoMood } from "@/lib/sprites";
 
@@ -55,7 +56,7 @@ type RunState = {
 const WORLD = "world";
 
 function runKey(mode: GameMode) {
-  return `lando-run-v2:${mode}`;
+  return `lando-run-v3:${mode}`;
 }
 
 function pickIso(isos: string[], stamped: string[], avoid: string | null) {
@@ -73,7 +74,12 @@ function nick(profile: Profile | null | undefined) {
   return name || null;
 }
 
-function successLine(country: string, streak: number, player: string | null) {
+function successLine(country: string, streak: number, player: string | null, city?: string) {
+  if (city) {
+    if (streak % 5 === 0) return `${streak} capitals in a row! ${city} is the capital of ${country}.`;
+    if (streak === 1) return `${city}! That's the capital of ${country}.`;
+    return `${city}! That's ${streak} in a row.`;
+  }
   if (streak === 1) {
     return player ? `${country}! That's your first one, ${player}.` : `${country}! That's the first one.`;
   }
@@ -111,11 +117,8 @@ function loadSaved(mode: GameMode) {
   }
 }
 
-function stampsFromBook(profile: Profile | null) {
-  if (!profile) return [];
-  return quizCountries
-    .filter((country) => (profile.stats[country.iso2]?.correct ?? 0) > 0)
-    .map((country) => country.iso2);
+function stampsFromBook(profile: Profile | null, mode: GameMode) {
+  return stampsFor(profile, mode);
 }
 
 function freshRun(): Pick<RunState, "runId" | "startedAt" | "streak" | "best" | "stamped"> {
@@ -131,6 +134,13 @@ function promptFor(
     return {
       phase: { kind: "type", iso: country.iso2 },
       line: "Whose flag is this?",
+      mood: "think",
+    };
+  }
+  if (mode === "capital") {
+    return {
+      phase: { kind: "type", iso: country.iso2 },
+      line: `What is the capital of ${country.name}?`,
       mood: "think",
     };
   }
@@ -187,7 +197,7 @@ function beginContinent(current: RunState, mode: GameMode, id: ContinentId, play
 
 function createRun(mode: GameMode, profile: Profile | null, fresh = false): RunState {
   const saved = fresh ? null : loadSaved(mode);
-  const carried = fresh || saved?.replay ? [] : stampsFromBook(profile);
+  const carried = fresh || saved?.replay ? [] : stampsFromBook(profile, mode);
   const stamped = [...new Set([...(saved?.stamped ?? []), ...carried])];
   const base = saved ? { ...saved, stamped } : { ...freshRun(), stamped };
   const continent = saved?.continent && isContinent(saved.continent) ? saved.continent : null;
@@ -206,7 +216,13 @@ function createRun(mode: GameMode, profile: Profile | null, fresh = false): RunS
     return {
       ...shell,
       phase: { kind: "victory" },
-      line: player ? `You named every country on the map, ${player}!` : "You named every country on the map!",
+      line: player
+        ? mode === "capital"
+          ? `You named every capital, ${player}!`
+          : `You named every country on the map, ${player}!`
+        : mode === "capital"
+          ? "You named every capital!"
+          : "You named every country on the map!",
       mood: "celebrate",
     };
   }
@@ -243,7 +259,7 @@ function createRun(mode: GameMode, profile: Profile | null, fresh = false): RunS
       line: player ? `Tap a country, then tell me its name, ${player}.` : "Tap a country, then tell me its name.",
     };
   }
-  if (mode === "where" || mode === "silhouette" || mode === "flag") return nextQuestion(shell, mode, null);
+  if (mode === "where" || mode === "silhouette" || mode === "flag" || mode === "capital") return nextQuestion(shell, mode, null);
 
   return {
     ...shell,
@@ -383,11 +399,17 @@ export function GameScreen({ mode }: { mode: GameMode }) {
   const showFlag = mode === "flag";
   const showMap = run.phase.kind === "continent" || (!showSilhouette && !showFlag && run.phase.kind !== "empty");
   const focusCountry =
-    run.phase.kind === "answer" || (mode === "name" && run.phase.kind === "type") ? run.phase.iso : null;
+    run.phase.kind === "answer" ||
+    (mode === "name" && run.phase.kind === "type") ||
+    (mode === "capital" && (run.phase.kind === "type" || run.phase.kind === "feedback"))
+      ? run.phase.iso
+      : null;
   const activeIso =
     run.phase.kind === "type" || run.phase.kind === "ask" || run.phase.kind === "feedback" || run.phase.kind === "answer"
       ? run.phase.iso
       : null;
+  const markedCapital = mode === "capital" && activeIso ? capitalOf(activeIso) : null;
+  const capitalDot = markedCapital ? ([markedCapital.lon, markedCapital.lat] as [number, number]) : null;
 
   function record(iso: string, outcome: Outcome, streak: number, completed = false) {
     const current = profileRef.current;
@@ -422,7 +444,12 @@ export function GameScreen({ mode }: { mode: GameMode }) {
             best: Math.max(current.best, streak),
             stamped: current.stamped.includes(iso) ? current.stamped : [...current.stamped, iso],
             phase: { kind: "feedback", tone: "good", iso, reveal: null, tiles },
-            line: successLine(country.name, streak, nick(profileRef.current)),
+            line: successLine(
+              country.name,
+              streak,
+              nick(profileRef.current),
+              mode === "capital" ? capitalOf(iso)?.name : undefined,
+            ),
             mood: "celebrate",
           }
         : current,
@@ -446,7 +473,7 @@ export function GameScreen({ mode }: { mode: GameMode }) {
         ? {
             ...current,
             streak: 0,
-            phase: { kind: "answer", iso, name: country.name, note },
+            phase: { kind: "answer", iso, name: mode === "capital" ? capitalOf(iso)?.name ?? country.name : country.name, note },
             line: "The answer",
             mood: "oops",
           }
@@ -504,7 +531,8 @@ export function GameScreen({ mode }: { mode: GameMode }) {
     if (!run || run.phase.kind !== "type" || hint.used >= 3) return;
     const country = countryByIso.get(run.phase.iso);
     if (!country) return;
-    const next = openHint(country.name, hint.used, hint.revealed);
+    const secret = mode === "capital" ? capitalOf(run.phase.iso)?.name ?? country.name : country.name;
+    const next = openHint(secret, hint.used, hint.revealed);
     setHint({ used: hint.used + 1, revealed: next.revealed, tiles: next.tiles });
     record(run.phase.iso, "hint", run.streak, false);
     sfx.tap();
@@ -517,9 +545,23 @@ export function GameScreen({ mode }: { mode: GameMode }) {
     const iso = run.phase.iso;
     const country = countryByIso.get(iso);
     if (!country || !raw.trim()) return;
-    const result = judgeGuess(raw, country, countries);
+    if (mode === "capital" && !capitalOf(iso)) return;
+    const place = mode === "capital" ? capitalOf(iso) : null;
+    const result = place
+      ? judgePlace(
+          raw,
+          place,
+          country.name,
+          everyCapital().flatMap((item) => {
+            if (!item || item.iso === iso) return [];
+            const other = countryByIso.get(item.iso);
+            return other ? [{ place: item, country: other.name }] : [];
+          }),
+        )
+      : judgeGuess(raw, country, countries);
+    const answerName = place?.name ?? country.name;
     if (result.kind === "correct") {
-      const tiles = letterTiles(raw, country.name, true);
+      const tiles = letterTiles(raw, answerName, true);
       tries.current = 0;
       setMarks(tiles);
       onCorrect(iso, "correct", tiles);
@@ -528,11 +570,15 @@ export function GameScreen({ mode }: { mode: GameMode }) {
       return;
     }
     if (result.kind === "hint") {
-      setMarks(letterTiles(raw, spellingTarget(raw, country)));
+      setMarks(letterTiles(raw, answerName));
       setRun((current) => (current ? { ...current, line: result.message, mood: "think" } : current));
       return;
     }
-    const tiles = letterTiles(raw, spellingTarget(raw, country));
+    if (result.kind === "mixup" && mode === "capital" && !result.costsTry) {
+      setRun((current) => (current ? { ...current, line: result.message, mood: "think" } : current));
+      return;
+    }
+    const tiles = letterTiles(raw, result.kind === "near" ? result.display : place ? place.name : spellingTarget(raw, country));
     const attempt = tries.current + 1;
     tries.current = attempt;
     setMarks(tiles);
@@ -547,10 +593,14 @@ export function GameScreen({ mode }: { mode: GameMode }) {
     setRun((current) => {
       if (!current) return current;
       const broke = current.streak > 0 ? ` ${STREAK_RESET}` : "";
+      const noteLine =
+        result.kind === "mixup"
+          ? `${result.message} ${triesLine}`
+          : `Not quite. Green letters are in the right place. ${triesLine}${broke}`;
       return {
         ...current,
         streak: 0,
-        line: `Not quite. Green letters are in the right place. ${triesLine}${broke}`,
+        line: noteLine,
         mood: "oops",
       };
     });
@@ -737,6 +787,7 @@ export function GameScreen({ mode }: { mode: GameMode }) {
               board={mapBoard}
               focus={run.phase.kind === "continent" ? null : run.continent}
               focusCountry={focusCountry}
+              capital={capitalDot}
               stamped={stamped}
               selected={selected}
               reveal={reveal}
@@ -930,9 +981,14 @@ export function GameScreen({ mode }: { mode: GameMode }) {
 
         {run.phase.kind !== "victory" && run.phase.kind !== "empty" ? (
           <div className="mt-3 flex items-center justify-between gap-2 text-sm font-bold">
-            <Link href={`/leaderboard?mode=${mode}`} className="underline">
-              Scores
-            </Link>
+            <span className="flex gap-3">
+              <Link href="/dex" className="underline">
+                Country dex
+              </Link>
+              <Link href={`/leaderboard?mode=${mode}`} className="underline">
+                Scores
+              </Link>
+            </span>
             {confirmReset ? (
               <span className="flex gap-2">
                 <button type="button" className="underline" onClick={() => resetRun()}>
@@ -957,6 +1013,12 @@ export function GameScreen({ mode }: { mode: GameMode }) {
 
   function resetRun() {
     replay.current = true;
+    const current = profileRef.current;
+    if (current) {
+      const next = clearGameStamps(current, mode);
+      profileRef.current = next;
+      setProfile(next);
+    }
     window.sessionStorage.removeItem(runKey(mode));
     setConfirmReset(false);
     setRun(createRun(mode, profileRef.current, true));
@@ -1034,8 +1096,12 @@ function afterFeedback(current: RunState, mode: GameMode, profile: Profile | nul
       phase: { kind: "victory" },
       mood: "celebrate",
       line: nick(profile)
-        ? `You named every country on the map, ${nick(profile)}! Your best streak is ${current.best}.`
-        : `You named every country on the map! Your best streak is ${current.best}.`,
+        ? mode === "capital"
+          ? `You named every capital, ${nick(profile)}! Your best streak is ${current.best}.`
+          : `You named every country on the map, ${nick(profile)}! Your best streak is ${current.best}.`
+        : mode === "capital"
+          ? `You named every capital! Your best streak is ${current.best}.`
+          : `You named every country on the map! Your best streak is ${current.best}.`,
     };
   }
   if (current.continent && continentLeft(current.stamped, current.continent).length === 0) {

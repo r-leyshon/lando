@@ -81,7 +81,12 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
           method: "POST",
           headers: { "content-type": "application/json" },
           cache: "no-store",
-          body: JSON.stringify({ stats: merged.stats, bestStreaks: merged.bestStreaks }),
+          body: JSON.stringify({
+            stats: merged.stats,
+            bestStreaks: merged.bestStreaks,
+            stamps: merged.stamps,
+            stampRevision: merged.stampRevision,
+          }),
         });
         if (saved.ok) merged = mergeProfiles(cached, (await saved.json()) as Profile);
       }
@@ -134,6 +139,9 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
         miss: stat?.miss ?? 0,
         nearMiss: stat?.nearMiss ?? 0,
         struggle: stat?.struggle ?? 0,
+        found: stat?.found ?? [],
+        stamps: next.stamps,
+        stampRevision: next.stampRevision,
       }),
     }).catch(() => undefined);
   }
@@ -148,7 +156,14 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
         body: JSON.stringify({
           credential,
           local: local
-            ? { id: local.id, recoveryCode: local.recoveryCode, stats: local.stats, bestStreaks: local.bestStreaks }
+            ? {
+                id: local.id,
+                recoveryCode: local.recoveryCode,
+                stats: local.stats,
+                bestStreaks: local.bestStreaks,
+                stamps: local.stamps,
+                stampRevision: local.stampRevision,
+              }
             : null,
         }),
       });

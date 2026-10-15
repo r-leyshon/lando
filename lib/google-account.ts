@@ -40,7 +40,7 @@ async function storeMerged(found: Bundle, local: Profile | null, googleSub: stri
   const remote = toProfile(found);
   remote.nickname = nickname;
   const combined = mergeProfiles(local, remote);
-  await saveSnapshot(found.player.id, combined.stats, combined.bestStreaks);
+  await saveSnapshot(found.player.id, combined.stats, combined.bestStreaks, combined.stamps, combined.stampRevision);
   const fresh = await findPlayerById(found.player.id);
   const profile = fresh ? toProfile(fresh) : combined;
   profile.nickname = nickname;
@@ -65,6 +65,8 @@ function localClaim(value: unknown) {
     seenCode: true,
     stats: snapshot.stats,
     bestStreaks: snapshot.bestStreaks,
+    stamps: snapshot.stamps,
+    stampRevision: snapshot.stampRevision,
   };
   return { id, code, profile };
 }
@@ -94,7 +96,13 @@ async function createFresh(claim: ReturnType<typeof localClaim>, googleSub: stri
     if (!again?.player) return null;
     return storeMerged(again, claim?.profile ?? null, googleSub, nickname);
   }
-  await saveSnapshot(id, claim?.profile.stats ?? {}, claim?.profile.bestStreaks ?? {});
+  await saveSnapshot(
+    id,
+    claim?.profile.stats ?? {},
+    claim?.profile.bestStreaks ?? {},
+    claim?.profile.stamps ?? {},
+    claim?.profile.stampRevision ?? 0,
+  );
   const fresh = await findPlayerById(id);
   if (!fresh) return null;
   const profile = toProfile(fresh);
