@@ -32,8 +32,20 @@ expect("niger on nigeria", judgeGuess("Niger", nigeria, countries).kind, "mixup"
 expect("guinea on bissau", judgeGuess("Guinea", bissau, countries).kind, "mixup");
 expect("near nigeria", judgeGuess("Nigeira", nigeria, countries).kind, "near");
 expect("near france", judgeGuess("Frnace", france, countries).kind, "near");
-expect("england", judgeGuess("England", uk, countries).kind, "mixup");
-expect("other country", judgeGuess("Brazil", france, countries).kind, "mixup");
+const england = judgeGuess("England", uk, countries);
+expect("england", england.kind, "mixup");
+expect(
+  "england hides the country",
+  england.kind === "mixup" && /united kingdom/i.test(england.message) ? "spoiled" : "hidden",
+  "hidden",
+);
+const otherCountry = judgeGuess("Brazil", france, countries);
+expect("other country", otherCountry.kind, "mixup");
+expect(
+  "other country hides the answer",
+  otherCountry.kind === "mixup" && otherCountry.message.includes(france.name) ? "spoiled" : "hidden",
+  "hidden",
+);
 expect("far", judgeGuess("Atlantis", france, countries).kind, "wrong");
 expect("prefix sao", judgeGuess("Sao Tome", sao, countries).kind, "near");
 expect("ambiguous united", judgeGuess("United", byName("US"), countries).kind, "hint");

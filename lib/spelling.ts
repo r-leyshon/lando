@@ -103,10 +103,10 @@ export type Judgement =
   | { kind: "wrong" };
 
 const KINGDOM_PARTS: Record<string, string> = {
-  england: "England is part of the United Kingdom.",
-  scotland: "Scotland is part of the United Kingdom.",
-  wales: "Wales is part of the United Kingdom.",
-  "northern ireland": "Northern Ireland is part of the United Kingdom.",
+  england: "England is only part of this country.",
+  scotland: "Scotland is only part of this country.",
+  wales: "Wales is only part of this country.",
+  "northern ireland": "Northern Ireland is only part of this country.",
 };
 
 export function normalizeName(value: string) {
@@ -193,7 +193,7 @@ export function judgeGuess(raw: string, country: Country, all: Country[]): Judge
   if (other) {
     return {
       kind: "mixup",
-      message: `That's ${other.name}. This country is ${country.name}.`,
+      message: `That's ${other.name}.`,
     };
   }
 
