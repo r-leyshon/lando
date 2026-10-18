@@ -537,7 +537,6 @@ export function GameScreen({ mode }: { mode: GameMode }) {
     record(run.phase.iso, "hint", run.streak, false);
     sfx.tap();
     setRun((current) => (current ? { ...current, line: next.line, mood: "think" } : current));
-    focusAnswer();
   }
 
   function submitGuess(raw: string) {
