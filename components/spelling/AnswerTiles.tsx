@@ -3,16 +3,17 @@
 import type { PointerEvent, RefObject } from "react";
 import { draftTiles, type LetterTile } from "@/lib/spelling";
 
-export function LetterRow({ tiles }: { tiles: LetterTile[] }) {
+export function LetterRow({ tiles, compact = false }: { tiles: LetterTile[]; compact?: boolean }) {
+  const box = compact ? "h-8 min-w-8 rounded-lg border-2 text-lg shadow-[2px_2px_0_#2a241b]" : "h-12 min-w-11 rounded-[10px] border-[3px] text-2xl shadow-[3px_3px_0_#2a241b]";
   return (
-    <div className="flex flex-wrap items-center justify-center gap-2" aria-hidden>
+    <div className={`flex flex-wrap items-center justify-center ${compact ? "gap-1" : "gap-2"}`} aria-hidden>
       {tiles.map((tile, index) =>
         tile.tone === "gap" ? (
-          <span key={index} className="w-3" />
+          <span key={index} className={compact ? "w-2" : "w-3"} />
         ) : (
           <span
             key={index}
-            className={`grid h-12 min-w-11 place-items-center rounded-[10px] border-[3px] border-ink text-2xl font-extrabold uppercase shadow-[3px_3px_0_#2a241b] transition-colors duration-200 ${
+            className={`grid place-items-center border-ink font-extrabold uppercase transition-colors duration-200 ${box} ${
               tile.tone === "green"
                 ? "bg-stamp text-ink"
                 : tile.tone === "red"
@@ -62,15 +63,11 @@ export function AnswerEntry({
       {lettersVisible ? (
         <div className="relative min-h-12" onPointerDown={focusField}>
           <LetterRow tiles={tiles} />
-          <AnswerField inputRef={inputRef} value={value} onChange={onChange} className="absolute inset-0 z-10 cursor-text bg-transparent text-base text-transparent caret-transparent outline-none" />
         </div>
       ) : (
-        <>
-          <button type="button" className="chunky min-h-12 w-full bg-paper font-extrabold" onPointerDown={focusField}>
-            Tap to type the answer
-          </button>
-          <AnswerField inputRef={inputRef} value={value} onChange={onChange} className="sr-only" />
-        </>
+        <button type="button" className="chunky min-h-12 w-full bg-paper font-extrabold" onPointerDown={focusField}>
+          Tap to type the answer
+        </button>
       )}
       <button type="submit" className="chunky min-h-12 bg-pick font-extrabold">
         Go
@@ -79,16 +76,22 @@ export function AnswerEntry({
   );
 }
 
-function AnswerField({
+export function AnswerField({
   inputRef,
   value,
   onChange,
   className,
+  onFocus,
+  onBlur,
+  onEnter,
 }: {
   inputRef: RefObject<HTMLInputElement | null>;
   value: string;
   onChange: (value: string) => void;
   className: string;
+  onFocus?: () => void;
+  onBlur?: () => void;
+  onEnter?: () => void;
 }) {
   return (
     <>
@@ -100,6 +103,13 @@ function AnswerField({
         id="country-answer"
         value={value}
         onChange={(event) => onChange(event.target.value)}
+        onFocus={onFocus}
+        onBlur={onBlur}
+        onKeyDown={(event) => {
+          if (event.key !== "Enter" || !onEnter) return;
+          event.preventDefault();
+          onEnter();
+        }}
         autoComplete="off"
         autoCorrect="off"
         autoCapitalize="words"

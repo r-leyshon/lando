@@ -19,7 +19,7 @@ export function Silhouette({ iso }: { iso: string }) {
   }, [shape]);
 
   return (
-    <svg viewBox="0 0 320 280" className="h-full w-full" role="img" aria-label="A mystery country shape">
+    <svg viewBox="0 0 320 280" preserveAspectRatio="xMidYMid meet" className="absolute inset-0 h-full w-full" role="img" aria-label="A mystery country shape">
       <rect width="320" height="280" fill="#9ed7ea" />
       <path d={d} fill="#f4d48a" stroke="#2a241b" strokeWidth={5} strokeLinejoin="round" />
     </svg>

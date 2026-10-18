@@ -302,23 +302,6 @@ export function CountryMap({
     });
   }
 
-  function animateZoom(target: number) {
-    window.cancelAnimationFrame(zoomAnim.current);
-    window.cancelAnimationFrame(focusAnim.current);
-    const from = zoomRef.current;
-    const start = performance.now();
-    gesturing.current = true;
-    const step = (now: number) => {
-      const t = Math.min(1, (now - start) / 220);
-      const eased = 1 - (1 - t) ** 3;
-      zoomRef.current = clampZoom(from + (target - from) * eased);
-      paint();
-      if (t < 1) zoomAnim.current = window.requestAnimationFrame(step);
-      else settle();
-    };
-    zoomAnim.current = window.requestAnimationFrame(step);
-  }
-
   useEffect(() => {
     rotateRef.current = [-BOARD_VIEWS[board].center[0], -BOARD_VIEWS[board].center[1]];
     zoomRef.current = 1;
@@ -443,7 +426,7 @@ export function CountryMap({
     const path = (event.target as Element).closest("path");
     const index = path ? Number(path.getAttribute("data-index")) : NaN;
     press.current = Number.isInteger(index) ? (featuresRef.current[index]?.properties ?? null) : null;
-    event.preventDefault();
+    if (!path) event.preventDefault();
     focusToken.current += 1;
     window.cancelAnimationFrame(zoomAnim.current);
     window.cancelAnimationFrame(focusAnim.current);
@@ -541,24 +524,6 @@ export function CountryMap({
           })}
         </g>
       </svg>
-      <div className="absolute top-3 right-3 flex flex-col gap-2">
-        <button
-          type="button"
-          className="chunky grid h-11 w-11 place-items-center bg-paper text-xl font-extrabold"
-          aria-label="Zoom in"
-          onClick={() => animateZoom(clampZoom(+(zoomRef.current * 1.6).toFixed(2)))}
-        >
-          +
-        </button>
-        <button
-          type="button"
-          className="chunky grid h-11 w-11 place-items-center bg-paper text-xl font-extrabold"
-          aria-label="Zoom out"
-          onClick={() => animateZoom(clampZoom(+(zoomRef.current / 1.6).toFixed(2)))}
-        >
-          −
-        </button>
-      </div>
     </div>
   );
 }

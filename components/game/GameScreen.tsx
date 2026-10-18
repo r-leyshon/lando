@@ -5,10 +5,10 @@ import { useRouter } from "next/navigation";
 import { useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type PointerEvent as ReactPointerEvent } from "react";
 import { CountryMap } from "@/components/map/CountryMap";
 import { FlagPrompt } from "@/components/game/FlagPrompt";
-import { revealAnswer, sheetLimits, usePinnedScreen } from "@/components/game/visible-screen";
+import { revealAnswer, sheetLimits, useKeyboardInset, usePinnedScreen } from "@/components/game/visible-screen";
 import { Silhouette } from "@/components/map/Silhouette";
 import { Lando, Speech } from "@/components/lando/Lando";
-import { AnswerEntry, LetterRow } from "@/components/spelling/AnswerTiles";
+import { AnswerEntry, AnswerField, LetterRow } from "@/components/spelling/AnswerTiles";
 import { usePlayer } from "@/components/player/PlayerProvider";
 import {
   BOARD_COLORS,
@@ -295,6 +295,9 @@ export function GameScreen({ mode }: { mode: GameMode }) {
   const sheetDrag = useRef<{ id: number; startY: number; startH: number } | null>(null);
   const [draggingSheet, setDraggingSheet] = useState(false);
   const [sheetHeight, setSheetHeight] = useState<number | null>(null);
+  const [fieldFocused, setFieldFocused] = useState(false);
+  const armTyping = useRef(false);
+  const keyboardInset = useKeyboardInset(Boolean(run));
   usePinnedScreen(Boolean(run));
 
   useEffect(() => {
@@ -336,16 +339,16 @@ export function GameScreen({ mode }: { mode: GameMode }) {
   }, [answerKey]);
 
   useEffect(() => {
-    if (run?.phase.kind !== "type") return;
-    inputRef.current?.focus({ preventScroll: true });
-    const frame = requestAnimationFrame(() => revealAnswer(inputRef.current, sheetRef.current));
-    return () => cancelAnimationFrame(frame);
+    if (run?.phase.kind === "type") return;
+    inputRef.current?.blur();
   }, [run?.phase]);
+
+  const typingWithKeyboard = run?.phase.kind === "type" && fieldFocused && keyboardInset > 80;
 
   useLayoutEffect(() => {
     const stage = stageRef.current;
     const body = sheetBodyRef.current;
-    if (!run || !stage || !body) return;
+    if (!run || !stage || !body || typingWithKeyboard) return;
     const { min, max } = sheetLimits(stage.clientHeight);
     const place =
       run.phase.kind === "continent" || run.phase.kind === "victory" || run.phase.kind === "empty" ? "menu" : "play";
@@ -364,7 +367,7 @@ export function GameScreen({ mode }: { mode: GameMode }) {
     }
     const wanted = Math.min(max, Math.max(min, body.offsetHeight + 44));
     setSheetHeight((current) => (current === wanted ? current : wanted));
-  }, [run, mode, hint.tiles.length, hint.used, confirmReset]);
+  }, [run, mode, hint.tiles.length, hint.used, confirmReset, typingWithKeyboard]);
 
   useEffect(() => {
     if (!run || run.phase.kind !== "feedback" || run.phase.tone !== "good") return;
@@ -481,22 +484,34 @@ export function GameScreen({ mode }: { mode: GameMode }) {
     );
   }
 
+  function openTyping() {
+    const field = inputRef.current;
+    if (!field) return;
+    field.focus({ preventScroll: true });
+    revealAnswer(field, sheetRef.current);
+  }
+
+  function dropTyping() {
+    if (!armTyping.current) return;
+    armTyping.current = false;
+    inputRef.current?.blur();
+  }
+
   function dismissAnswer() {
-    if (performance.now() - answerAt.current < 500) return;
+    if (performance.now() - answerAt.current < 500 || !run || run.phase.kind !== "answer") return;
     sfx.tap();
-    setRun((current) => {
-      if (!current || current.phase.kind !== "answer") return current;
-      if (mode === "name") {
-        return {
-          ...current,
-          phase: { kind: "choose" },
-          mood: "idle",
-          practiceKind: null,
-          line: "Tap another country.",
-        };
-      }
-      return nextQuestion(current, mode, profileRef.current);
-    });
+    const next =
+      mode === "name"
+        ? {
+            ...run,
+            phase: { kind: "choose" as const },
+            mood: "idle" as const,
+            practiceKind: null,
+            line: "Tap another country.",
+          }
+        : nextQuestion(run, mode, profileRef.current);
+    setRun(next);
+    if (next.phase.kind === "type") openTyping();
   }
 
   function giveUp() {
@@ -505,26 +520,36 @@ export function GameScreen({ mode }: { mode: GameMode }) {
     showAnswer(run.phase.iso, note, "skip");
   }
 
-  function focusAnswer() {
+  function onStagePointerDown(event: ReactPointerEvent<HTMLElement>) {
+    const target = event.target;
+    if (!(target instanceof Element) || !run) return;
     const field = inputRef.current;
     if (!field) return;
-    field.focus({ preventScroll: true });
-    revealAnswer(field, sheetRef.current);
-  }
-
-  function dismissKeyboard(event: ReactPointerEvent<HTMLElement>) {
-    const field = inputRef.current;
-    if (!field || document.activeElement !== field) return;
-    const target = event.target;
-    if (!(target instanceof Element)) return;
-    if (field.form?.contains(target)) return;
-    if (target.closest("[data-sheet-handle], [data-typed-word]")) return;
-    field.blur();
-    const inSheet = sheetRef.current?.contains(target) ?? false;
-    if (!inSheet && !target.closest("button, a")) {
-      event.preventDefault();
-      event.stopPropagation();
+    const keyboardOpen = fieldFocused && keyboardInset > 80 && run.phase.kind === "type";
+    if (document.activeElement === field && keyboardOpen) {
+      if (target.closest("[data-typing-bar], form, [data-sheet-handle], [data-keep-keyboard]")) return;
+      field.blur();
+      const inSheet = sheetRef.current?.contains(target) ?? false;
+      if (!inSheet && !target.closest("button, a")) {
+        event.preventDefault();
+        event.stopPropagation();
+      }
+      return;
     }
+    const startsQuestion =
+      Boolean(target.closest("path")) &&
+      (run.phase.kind === "choose" ||
+        (run.phase.kind === "continent" && mode !== "name" && mode !== "where" && mode !== "practice"));
+    if (!startsQuestion) return;
+    armTyping.current = true;
+    openTyping();
+    const finish = () => {
+      window.removeEventListener("pointerup", finish);
+      window.removeEventListener("pointercancel", finish);
+      dropTyping();
+    };
+    window.addEventListener("pointerup", finish);
+    window.addEventListener("pointercancel", finish);
   }
 
   function askHint() {
@@ -608,10 +633,14 @@ export function GameScreen({ mode }: { mode: GameMode }) {
   function onPick(hit: { iso2: string } | { note: string }) {
     if (!run) return;
     if ("note" in hit) {
+      dropTyping();
       setRun((current) => (current ? { ...current, line: hit.note, mood: "think" } : current));
       return;
     }
-    if (run.phase.kind === "feedback" || run.phase.kind === "victory" || run.phase.kind === "answer") return;
+    if (run.phase.kind === "feedback" || run.phase.kind === "victory" || run.phase.kind === "answer") {
+      dropTyping();
+      return;
+    }
     sfx.tap();
     tries.current = 0;
     setDraft("");
@@ -619,14 +648,19 @@ export function GameScreen({ mode }: { mode: GameMode }) {
     if (run.phase.kind === "continent") {
       const country = countryByIso.get(hit.iso2);
       if (country && isContinent(country.primary)) {
-        const id = country.primary;
-        setRun((current) => (current ? beginContinent(current, mode, id, nick(profileRef.current)) : current));
-      }
+        const next = beginContinent(run, mode, country.primary, nick(profileRef.current));
+        setRun(next);
+        if (next.phase.kind === "type") {
+          armTyping.current = false;
+          openTyping();
+        } else dropTyping();
+      } else dropTyping();
       return;
     }
     const picked = countryByIso.get(hit.iso2);
     const playing = run.continent;
     if (playing && picked && isContinent(picked.primary) && picked.primary !== playing && run.phase.kind !== "ask") {
+      dropTyping();
       setRun((current) =>
         current
           ? {
@@ -639,6 +673,7 @@ export function GameScreen({ mode }: { mode: GameMode }) {
       return;
     }
     if (run.phase.kind === "ask") {
+      dropTyping();
       if (hit.iso2 === run.phase.iso) onCorrect(hit.iso2, "correct");
       else {
         const tapped = countryByIso.get(hit.iso2);
@@ -649,12 +684,15 @@ export function GameScreen({ mode }: { mode: GameMode }) {
       return;
     }
     if (run.stamped.includes(hit.iso2)) {
+      dropTyping();
       const name = countryByIso.get(hit.iso2)?.name ?? "That country";
       setRun((current) =>
         current ? { ...current, line: `You already named ${name}. Try another country.`, mood: "wave" } : current,
       );
       return;
     }
+    armTyping.current = false;
+    openTyping();
     setRun((current) =>
       current
         ? {
@@ -724,7 +762,7 @@ export function GameScreen({ mode }: { mode: GameMode }) {
   return (
     <main
       className="fixed inset-x-0 top-0 flex h-dvh flex-col overflow-hidden overscroll-none bg-sea text-ink"
-      onPointerDownCapture={dismissKeyboard}
+      onPointerDownCapture={onStagePointerDown}
     >
       <header className="safe-top flex items-center gap-2 px-3 pt-3 pb-2">
         <Link href="/" className="chunky grid h-11 w-11 place-items-center bg-paper text-xl" aria-label="Back">
@@ -779,8 +817,24 @@ export function GameScreen({ mode }: { mode: GameMode }) {
         </button>
       </header>
 
+      <AnswerField
+        inputRef={inputRef}
+        value={draft}
+        onChange={(value) => {
+          setDraft(value);
+          setMarks(null);
+        }}
+        onFocus={() => setFieldFocused(true)}
+        onBlur={() => setFieldFocused(false)}
+        onEnter={() => submitGuess(draft)}
+        className="sr-only"
+      />
       <div ref={stageRef} className="relative min-h-0 flex-1">
-        <div className="absolute inset-0">
+        <div
+          className="absolute inset-x-0 top-0 flex flex-col"
+          style={{ bottom: typingWithKeyboard ? keyboardInset : (sheetHeight ?? sheetMin) }}
+        >
+        <div className="relative h-full min-h-0 flex-1">
           {showMap ? (
             <CountryMap
               board={mapBoard}
@@ -802,39 +856,51 @@ export function GameScreen({ mode }: { mode: GameMode }) {
             </div>
           ) : null}
         </div>
-
-        {run.phase.kind === "type" ? (
-          <div className="pointer-events-none absolute inset-x-3 top-2 z-20 flex justify-center pr-14">
-            {typedTiles.length > 0 ? (
-              <div
-                data-typed-word
-                className="pointer-events-auto max-w-full rounded-[14px] border-[3px] border-ink bg-paper px-3 py-2 shadow-[3px_3px_0_#2a241b]"
-                onPointerDown={(event) => {
-                  event.preventDefault();
-                  focusAnswer();
-                }}
-              >
-                <LetterRow tiles={typedTiles} />
+        {typingWithKeyboard ? (
+          <div data-typing-bar className="z-20 shrink-0 border-t-[3px] border-ink bg-paper px-3 py-2">
+            <div className="flex items-end gap-2">
+              <Lando mood={run.mood} className="h-16 shrink-0" />
+              <Speech>{run.line}</Speech>
+            </div>
+            {hint.tiles.length > 0 ? (
+              <div className="mt-2">
+                <LetterRow tiles={hint.tiles} compact />
               </div>
-            ) : (
+            ) : null}
+            {typedTiles.length > 0 ? (
+              <div className="mt-2">
+                <LetterRow tiles={typedTiles} compact />
+              </div>
+            ) : null}
+            <div className="mt-2 grid grid-cols-3 gap-2">
               <button
                 type="button"
-                data-typed-word
-                className="chunky pointer-events-auto min-h-12 bg-paper px-4 font-extrabold"
-                onPointerDown={(event) => {
-                  event.preventDefault();
-                  focusAnswer();
-                }}
+                className="chunky min-h-11 bg-pick text-sm font-extrabold"
+                onClick={() => submitGuess(draft)}
               >
-                Tap to type the answer
+                Go
               </button>
-            )}
+              <button
+                type="button"
+                data-keep-keyboard
+                className="chunky min-h-11 bg-sand text-sm font-extrabold disabled:opacity-50"
+                disabled={hint.used >= 3}
+                onMouseDown={(event) => event.preventDefault()}
+                onClick={askHint}
+              >
+                Hint
+              </button>
+              <button type="button" className="chunky min-h-11 bg-paper text-sm font-extrabold" onClick={giveUp}>
+                Don't know
+              </button>
+            </div>
           </div>
         ) : null}
+        </div>
 
         <section
           ref={sheetRef}
-          className="sheet absolute inset-x-0 z-10 overflow-y-auto overscroll-contain"
+          className={`sheet absolute inset-x-0 z-10 overflow-y-auto overscroll-contain ${typingWithKeyboard ? "hidden" : ""}`}
           style={{
             bottom: 0,
             height: sheetHeight ?? undefined,
@@ -890,7 +956,9 @@ export function GameScreen({ mode }: { mode: GameMode }) {
                     style={{ background: BOARD_COLORS[id] }}
                     onClick={() => {
                       sfx.tap();
-                      setRun((current) => (current ? beginContinent(current, mode, id, nick(profileRef.current)) : current));
+                      const next = beginContinent(run, mode, id, nick(profileRef.current));
+                      setRun(next);
+                      if (next.phase.kind === "type") openTyping();
                     }}
                   >
                     <span className="block text-base font-extrabold">{BOARD_LABELS[id]}</span>
@@ -917,14 +985,7 @@ export function GameScreen({ mode }: { mode: GameMode }) {
         {run.phase.kind === "type" ? (
           <>
             {hint.tiles.length > 0 ? (
-              <div
-                className="mt-3 cursor-text"
-                aria-label={run.line}
-                onMouseDown={(event) => {
-                  event.preventDefault();
-                  focusAnswer();
-                }}
-              >
+              <div className="mt-3" aria-label={run.line}>
                 <LetterRow tiles={hint.tiles} />
               </div>
             ) : null}
@@ -932,7 +993,6 @@ export function GameScreen({ mode }: { mode: GameMode }) {
               value={draft}
               marks={marks}
               inputRef={inputRef}
-              showLetters={false}
               onChange={(value) => {
                 setDraft(value);
                 setMarks(null);
@@ -941,6 +1001,7 @@ export function GameScreen({ mode }: { mode: GameMode }) {
             />
             <button
               type="button"
+              data-keep-keyboard
               className="chunky mt-2 min-h-12 w-full bg-sand font-extrabold disabled:opacity-50"
               disabled={hint.used >= 3}
               onMouseDown={(event) => event.preventDefault()}

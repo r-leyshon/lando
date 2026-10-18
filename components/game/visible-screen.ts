@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 
 /** Slide the answer into the bottom sheet without scrolling the page. */
 export function revealAnswer(input: HTMLInputElement | null, sheet: HTMLElement | null) {
@@ -68,6 +68,31 @@ export function usePinnedScreen(active: boolean) {
       body.style.width = previous.bodyWidth;
     };
   }, [active]);
+}
+
+/** Pixels the phone keyboard covers. Zero on a desktop, where the viewport does not shrink. */
+export function useKeyboardInset(active: boolean) {
+  const [inset, setInset] = useState(0);
+  useEffect(() => {
+    if (!active) return;
+    const viewport = window.visualViewport;
+    const read = () => {
+      const next = viewport
+        ? Math.max(0, Math.round(window.innerHeight - viewport.height - viewport.offsetTop))
+        : 0;
+      setInset((current) => (current === next ? current : next));
+    };
+    read();
+    viewport?.addEventListener("resize", read);
+    viewport?.addEventListener("scroll", read);
+    window.addEventListener("resize", read);
+    return () => {
+      viewport?.removeEventListener("resize", read);
+      viewport?.removeEventListener("scroll", read);
+      window.removeEventListener("resize", read);
+    };
+  }, [active]);
+  return inset;
 }
 
 /** How tall Lando's panel may be: a short tab, or tall enough to leave some of the picture. */
