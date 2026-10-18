@@ -527,7 +527,7 @@ export function GameScreen({ mode }: { mode: GameMode }) {
     if (!field) return;
     const keyboardOpen = fieldFocused && keyboardInset > 80 && run.phase.kind === "type";
     if (document.activeElement === field && keyboardOpen) {
-      if (target.closest("[data-typing-bar], form, [data-sheet-handle], [data-keep-keyboard]")) return;
+      if (target.closest("[data-typing-bar], [data-typed-word], form, [data-sheet-handle], [data-keep-keyboard]")) return;
       field.blur();
       const inSheet = sheetRef.current?.contains(target) ?? false;
       if (!inSheet && !target.closest("button, a")) {
@@ -855,6 +855,20 @@ export function GameScreen({ mode }: { mode: GameMode }) {
               <Lando mood={run.mood} className="h-40" />
             </div>
           ) : null}
+          {run.phase.kind === "type" && typedTiles.length > 0 ? (
+            <div className="pointer-events-none absolute inset-x-3 top-2 z-20 flex justify-center">
+              <div
+                data-typed-word
+                className="pointer-events-auto max-w-full rounded-[14px] border-[3px] border-ink bg-paper px-3 py-2 shadow-[3px_3px_0_#2a241b]"
+                onPointerDown={(event) => {
+                  event.preventDefault();
+                  openTyping();
+                }}
+              >
+                <LetterRow tiles={typedTiles} />
+              </div>
+            </div>
+          ) : null}
         </div>
         {typingWithKeyboard ? (
           <div data-typing-bar className="z-20 shrink-0 border-t-[3px] border-ink bg-paper px-3 py-2">
@@ -865,11 +879,6 @@ export function GameScreen({ mode }: { mode: GameMode }) {
             {hint.tiles.length > 0 ? (
               <div className="mt-2">
                 <LetterRow tiles={hint.tiles} compact />
-              </div>
-            ) : null}
-            {typedTiles.length > 0 ? (
-              <div className="mt-2">
-                <LetterRow tiles={typedTiles} compact />
               </div>
             ) : null}
             <div className="mt-2 grid grid-cols-3 gap-2">
@@ -993,6 +1002,7 @@ export function GameScreen({ mode }: { mode: GameMode }) {
               value={draft}
               marks={marks}
               inputRef={inputRef}
+              showLetters={false}
               onChange={(value) => {
                 setDraft(value);
                 setMarks(null);
